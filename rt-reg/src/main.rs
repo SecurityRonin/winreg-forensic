@@ -50,6 +50,17 @@ enum Command {
         #[arg(long, default_value = "table")]
         format: OutputFormat,
     },
+    /// Discover registry hives in an evidence directory
+    Discover {
+        /// Path to evidence root (mounted disk image or extracted filesystem)
+        evidence_root: PathBuf,
+        /// Filter by hive type
+        #[arg(long, alias = "type")]
+        hive_type: Option<String>,
+        /// Output format
+        #[arg(long, default_value = "table")]
+        format: OutputFormat,
+    },
     /// Compare two hive files and show differences
     Diff {
         /// Path to the left (older) hive file
@@ -97,6 +108,11 @@ fn main() {
             value_data.as_deref(),
             &format,
         ),
+        Command::Discover {
+            evidence_root,
+            hive_type,
+            format,
+        } => cmd_discover(&evidence_root, hive_type.as_deref(), &format),
         Command::Diff {
             left,
             right,
@@ -283,6 +299,73 @@ fn cmd_diff(
                         }
                     }
                 }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn cmd_discover(
+    evidence_root: &std::path::Path,
+    hive_type_filter: Option<&str>,
+    format: &OutputFormat,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let sources = winreg_discover::discover_hives(evidence_root);
+
+    let filtered: Vec<_> = if let Some(filter) = hive_type_filter {
+        let filter_upper = filter.to_ascii_uppercase();
+        sources
+            .into_iter()
+            .filter(|s| {
+                s.hive_type
+                    .to_string()
+                    .to_ascii_uppercase()
+                    .contains(&filter_upper)
+            })
+            .collect()
+    } else {
+        sources
+    };
+
+    match format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&filtered)?);
+        }
+        OutputFormat::Jsonl => {
+            for source in &filtered {
+                println!("{}", serde_json::to_string(source)?);
+            }
+        }
+        _ => {
+            // Table format
+            println!(
+                "Discovered {} hive source(s) in {}",
+                filtered.len(),
+                evidence_root.display()
+            );
+            println!();
+            println!(
+                "{:<12} {:<10} {:<24} {:>10} {:<6} PATH",
+                "TYPE", "ORIGIN", "TIMESTAMP", "SIZE", "CLEAN"
+            );
+            println!("{}", "-".repeat(90));
+
+            for source in &filtered {
+                let ts = source.timestamp.map_or_else(
+                    || "\u{2014}".into(),
+                    |t| t.format("%Y-%m-%d %H:%M:%S").to_string(),
+                );
+                let clean = if source.is_clean { "yes" } else { "NO" };
+                println!(
+                    "{:<12} {:<10} {:<24} {:>10} {:<6} {}",
+                    source.hive_type,
+                    source.origin,
+                    ts,
+                    source.size,
+                    clean,
+                    source.path.display()
+                );
             }
         }
     }

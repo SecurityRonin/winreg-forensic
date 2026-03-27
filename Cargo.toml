@@ -33,7 +33,7 @@ miette = { version = "7", features = ["fancy"] }
 thiserror = "2"
 
 # Time
-chrono = { version = "0.4", default-features = false, features = ["serde"] }
+chrono = { version = "0.4", default-features = false, features = ["alloc", "serde"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
