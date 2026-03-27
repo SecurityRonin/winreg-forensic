@@ -414,3 +414,208 @@ mod nk_vk_tests {
         assert!(RawKeyValue::parse(&data).is_none());
     }
 }
+
+/// LF (Fast Leaf) element: key node offset + 4-byte name hint.
+#[derive(Debug, Clone, Copy)]
+pub struct LfElement {
+    pub key_offset: CellOffset,
+    /// First 4 ASCII characters of key name (uppercase).
+    pub name_hint: [u8; 4],
+}
+
+/// LH (Hash Leaf) element: key node offset + 32-bit name hash.
+#[derive(Debug, Clone, Copy)]
+pub struct LhElement {
+    pub key_offset: CellOffset,
+    /// Hash: H = 37*H + C[i] over uppercase key name.
+    pub name_hash: u32,
+}
+
+/// Parsed subkey index — dispatches across LF, LH, LI, RI.
+#[derive(Debug, Clone)]
+pub enum SubkeyIndex {
+    FastLeaf(Vec<LfElement>),
+    HashLeaf(Vec<LhElement>),
+    IndexLeaf(Vec<CellOffset>),
+    RootIndex(Vec<CellOffset>),
+}
+
+impl SubkeyIndex {
+    pub fn parse_lf(data: &[u8]) -> Option<Self> {
+        if data.len() < 2 { return None; }
+        let count = u16::from_le_bytes([data[0], data[1]]) as usize;
+        let elements_data = &data[2..];
+        if elements_data.len() < count * 8 { return None; }
+        let elements = (0..count).map(|i| {
+            let base = i * 8;
+            LfElement {
+                key_offset: CellOffset(u32::from_le_bytes(elements_data[base..base + 4].try_into().unwrap())),
+                name_hint: elements_data[base + 4..base + 8].try_into().unwrap(),
+            }
+        }).collect();
+        Some(Self::FastLeaf(elements))
+    }
+
+    pub fn parse_lh(data: &[u8]) -> Option<Self> {
+        if data.len() < 2 { return None; }
+        let count = u16::from_le_bytes([data[0], data[1]]) as usize;
+        let elements_data = &data[2..];
+        if elements_data.len() < count * 8 { return None; }
+        let elements = (0..count).map(|i| {
+            let base = i * 8;
+            LhElement {
+                key_offset: CellOffset(u32::from_le_bytes(elements_data[base..base + 4].try_into().unwrap())),
+                name_hash: u32::from_le_bytes(elements_data[base + 4..base + 8].try_into().unwrap()),
+            }
+        }).collect();
+        Some(Self::HashLeaf(elements))
+    }
+
+    pub fn parse_li(data: &[u8]) -> Option<Self> {
+        if data.len() < 2 { return None; }
+        let count = u16::from_le_bytes([data[0], data[1]]) as usize;
+        let elements_data = &data[2..];
+        if elements_data.len() < count * 4 { return None; }
+        let offsets = (0..count).map(|i| {
+            let base = i * 4;
+            CellOffset(u32::from_le_bytes(elements_data[base..base + 4].try_into().unwrap()))
+        }).collect();
+        Some(Self::IndexLeaf(offsets))
+    }
+
+    pub fn parse_ri(data: &[u8]) -> Option<Self> {
+        if data.len() < 2 { return None; }
+        let count = u16::from_le_bytes([data[0], data[1]]) as usize;
+        let elements_data = &data[2..];
+        if elements_data.len() < count * 4 { return None; }
+        let offsets = (0..count).map(|i| {
+            let base = i * 4;
+            CellOffset(u32::from_le_bytes(elements_data[base..base + 4].try_into().unwrap()))
+        }).collect();
+        Some(Self::RootIndex(offsets))
+    }
+}
+
+/// Compute LH name hash: H = 37*H + C[i] over uppercase name.
+pub fn lh_hash(name: &str) -> u32 {
+    let mut h: u32 = 0;
+    for c in name.to_ascii_uppercase().bytes() {
+        h = h.wrapping_mul(37).wrapping_add(u32::from(c));
+    }
+    h
+}
+
+/// Raw SK (Security Key) cell data.
+#[derive(Debug, Clone)]
+pub struct RawSecurityKey {
+    pub flink: CellOffset,
+    pub blink: CellOffset,
+    pub reference_count: u32,
+    pub descriptor_size: u32,
+    pub descriptor: Vec<u8>,
+}
+
+impl RawSecurityKey {
+    pub fn parse(data: &[u8]) -> Option<Self> {
+        if data.len() < 18 { return None; }
+        let flink = CellOffset(u32::from_le_bytes(data[2..6].try_into().ok()?));
+        let blink = CellOffset(u32::from_le_bytes(data[6..10].try_into().ok()?));
+        let reference_count = u32::from_le_bytes(data[10..14].try_into().ok()?);
+        let descriptor_size = u32::from_le_bytes(data[14..18].try_into().ok()?);
+        let desc_end = 18 + descriptor_size as usize;
+        if data.len() < desc_end { return None; }
+        let descriptor = data[18..desc_end].to_vec();
+        Some(Self { flink, blink, reference_count, descriptor_size, descriptor })
+    }
+}
+
+/// Raw DB (Big Data) cell.
+#[derive(Debug, Clone)]
+pub struct RawBigData {
+    pub segment_count: u16,
+    pub segment_list_offset: CellOffset,
+}
+
+impl RawBigData {
+    pub fn parse(data: &[u8]) -> Option<Self> {
+        if data.len() < 6 { return None; }
+        let segment_count = u16::from_le_bytes([data[0], data[1]]);
+        let segment_list_offset = CellOffset(u32::from_le_bytes(data[2..6].try_into().ok()?));
+        Some(Self { segment_count, segment_list_offset })
+    }
+}
+
+#[cfg(test)]
+mod index_tests {
+    use super::*;
+
+    #[test]
+    fn parse_lh_with_two_elements() {
+        let mut data = vec![0u8; 2 + 2 * 8];
+        data[0..2].copy_from_slice(&2u16.to_le_bytes());
+        data[2..6].copy_from_slice(&0x100u32.to_le_bytes());
+        data[6..10].copy_from_slice(&0xABCDu32.to_le_bytes());
+        data[10..14].copy_from_slice(&0x200u32.to_le_bytes());
+        data[14..18].copy_from_slice(&0x1234u32.to_le_bytes());
+        let index = SubkeyIndex::parse_lh(&data).unwrap();
+        if let SubkeyIndex::HashLeaf(elements) = index {
+            assert_eq!(elements.len(), 2);
+            assert_eq!(elements[0].key_offset, CellOffset(0x100));
+            assert_eq!(elements[0].name_hash, 0xABCD);
+            assert_eq!(elements[1].key_offset, CellOffset(0x200));
+        } else { panic!("expected HashLeaf"); }
+    }
+
+    #[test]
+    fn parse_li_with_three_offsets() {
+        let mut data = vec![0u8; 2 + 3 * 4];
+        data[0..2].copy_from_slice(&3u16.to_le_bytes());
+        data[2..6].copy_from_slice(&0x100u32.to_le_bytes());
+        data[6..10].copy_from_slice(&0x200u32.to_le_bytes());
+        data[10..14].copy_from_slice(&0x300u32.to_le_bytes());
+        let index = SubkeyIndex::parse_li(&data).unwrap();
+        if let SubkeyIndex::IndexLeaf(offsets) = index {
+            assert_eq!(offsets.len(), 3);
+            assert_eq!(offsets[0], CellOffset(0x100));
+        } else { panic!("expected IndexLeaf"); }
+    }
+
+    #[test]
+    fn lh_hash_algorithm() {
+        let hash = lh_hash("SOFTWARE");
+        assert_eq!(hash, lh_hash("software")); // case-insensitive
+    }
+
+    #[test]
+    fn parse_sk_cell() {
+        let mut data = vec![0u8; 18 + 20];
+        data[2..6].copy_from_slice(&0x100u32.to_le_bytes());
+        data[6..10].copy_from_slice(&0x200u32.to_le_bytes());
+        data[10..14].copy_from_slice(&3u32.to_le_bytes());
+        data[14..18].copy_from_slice(&20u32.to_le_bytes());
+        data[18..38].fill(0xAA);
+        let sk = RawSecurityKey::parse(&data).unwrap();
+        assert_eq!(sk.flink, CellOffset(0x100));
+        assert_eq!(sk.reference_count, 3);
+        assert_eq!(sk.descriptor.len(), 20);
+    }
+
+    #[test]
+    fn parse_db_cell() {
+        let mut data = vec![0u8; 6];
+        data[0..2].copy_from_slice(&3u16.to_le_bytes());
+        data[2..6].copy_from_slice(&0x500u32.to_le_bytes());
+        let db = RawBigData::parse(&data).unwrap();
+        assert_eq!(db.segment_count, 3);
+        assert_eq!(db.segment_list_offset, CellOffset(0x500));
+    }
+
+    #[test]
+    fn empty_index_parses() {
+        let data = vec![0u8; 2];
+        let index = SubkeyIndex::parse_lh(&data).unwrap();
+        if let SubkeyIndex::HashLeaf(elements) = index {
+            assert!(elements.is_empty());
+        } else { panic!("expected empty HashLeaf"); }
+    }
+}
