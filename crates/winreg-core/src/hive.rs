@@ -82,6 +82,12 @@ impl Hive<Cursor<Vec<u8>>> {
             header_bytes,
         })
     }
+
+    /// Open a hive from a file path.
+    pub fn from_path(path: &std::path::Path) -> Result<Self> {
+        let data = std::fs::read(path)?;
+        Self::from_bytes(data)
+    }
 }
 
 impl<R: ReadSeek> Hive<R> {
