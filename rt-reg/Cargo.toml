@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 winreg-core.workspace = true
+winreg-diff.workspace = true
 winreg-format.workspace = true
 clap.workspace = true
 serde_json.workspace = true

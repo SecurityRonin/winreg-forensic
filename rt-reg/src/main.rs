@@ -50,6 +50,19 @@ enum Command {
         #[arg(long, default_value = "table")]
         format: OutputFormat,
     },
+    /// Compare two hive files and show differences
+    Diff {
+        /// Path to the left (older) hive file
+        left: PathBuf,
+        /// Path to the right (newer) hive file
+        right: PathBuf,
+        /// Output format
+        #[arg(long, default_value = "table")]
+        format: OutputFormat,
+        /// Only show changed keys (hide unchanged context)
+        #[arg(long)]
+        changes_only: bool,
+    },
 }
 
 #[derive(Clone, ValueEnum)]
@@ -84,6 +97,12 @@ fn main() {
             value_data.as_deref(),
             &format,
         ),
+        Command::Diff {
+            left,
+            right,
+            format,
+            changes_only,
+        } => cmd_diff(&left, &right, &format, changes_only),
     };
 
     if let Err(e) = result {
@@ -192,6 +211,80 @@ fn dump_key(
 
     for subkey in key.subkeys()? {
         dump_key(&subkey, depth + 1, max_depth)?;
+    }
+
+    Ok(())
+}
+
+fn cmd_diff(
+    left_path: &std::path::Path,
+    right_path: &std::path::Path,
+    format: &OutputFormat,
+    _changes_only: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let left = winreg_core::hive::Hive::from_path(left_path)?;
+    let right = winreg_core::hive::Hive::from_path(right_path)?;
+
+    let left_label = left_path.file_name().unwrap_or_default().to_string_lossy();
+    let right_label = right_path.file_name().unwrap_or_default().to_string_lossy();
+
+    let result = winreg_diff::diff_hives(&left, &right, &left_label, &right_label)?;
+
+    match format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        }
+        OutputFormat::Jsonl => {
+            for entry in &result.entries {
+                println!("{}", serde_json::to_string(entry)?);
+            }
+        }
+        _ => {
+            // Table format
+            println!("Comparing: {} vs {}", result.left_label, result.right_label);
+            println!(
+                "Changes: {} added, {} removed, {} modified keys | {} added, {} removed, {} changed values",
+                result.stats.keys_added,
+                result.stats.keys_removed,
+                result.stats.keys_modified,
+                result.stats.values_added,
+                result.stats.values_removed,
+                result.stats.values_changed,
+            );
+            println!();
+
+            for entry in &result.entries {
+                let marker = match entry.kind {
+                    winreg_diff::DiffKind::KeyAdded => "+",
+                    winreg_diff::DiffKind::KeyRemoved => "-",
+                    winreg_diff::DiffKind::KeyModified => "~",
+                };
+                println!("{marker} {}", entry.path);
+
+                for vd in &entry.details {
+                    match &vd.kind {
+                        winreg_diff::ValueDiffKind::Added { value } => {
+                            println!(
+                                "    + {} ({}) = {}",
+                                vd.name, value.data_type, value.display
+                            );
+                        }
+                        winreg_diff::ValueDiffKind::Removed { value } => {
+                            println!(
+                                "    - {} ({}) = {}",
+                                vd.name, value.data_type, value.display
+                            );
+                        }
+                        winreg_diff::ValueDiffKind::Changed { left, right } => {
+                            println!(
+                                "    ~ {} ({}): {} -> {}",
+                                vd.name, left.data_type, left.display, right.display
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 
     Ok(())
