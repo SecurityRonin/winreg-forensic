@@ -1,0 +1,10 @@
+[package]
+name = "winreg-carve"
+version = "0.1.0"
+description = "Registry hive carving from disk/memory images"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true

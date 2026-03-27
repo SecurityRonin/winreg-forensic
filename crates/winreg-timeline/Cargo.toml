@@ -1,0 +1,10 @@
+[package]
+name = "winreg-timeline"
+version = "0.1.0"
+description = "Timeline generation from registry artifacts"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,55 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/winreg-format",
+    "crates/winreg-core",
+    "crates/winreg-recover",
+    "crates/winreg-carve",
+    "crates/winreg-artifacts",
+    "crates/winreg-timeline",
+    "crates/winreg-fuse",
+    "crates/winreg-py",
+    "rt-reg",
+]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.75"
+license = "Apache-2.0"
+repository = "https://github.com/4n6h4x0r/winreg-forensic"
+
+[workspace.dependencies]
+# Format/parsing
+binrw = "0.4"
+bitflags = "2"
+
+# I/O
+memmap2 = "0.9"
+
+# Error handling
+miette = { version = "7", features = ["fancy"] }
+thiserror = "2"
+
+# Time
+chrono = { version = "0.4", default-features = false, features = ["serde"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Testing
+tempfile = "3"
+
+# Internal
+winreg-format = { path = "crates/winreg-format" }
+winreg-core = { path = "crates/winreg-core" }
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"

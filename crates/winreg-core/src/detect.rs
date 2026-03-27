@@ -1,0 +1,1 @@
+//! Hive type auto-detection.

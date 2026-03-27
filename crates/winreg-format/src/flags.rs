@@ -1,0 +1,1 @@
+//! Flag and bitfield definitions.

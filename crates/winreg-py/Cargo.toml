@@ -1,0 +1,10 @@
+[package]
+name = "winreg-py"
+version = "0.1.0"
+description = "Python bindings for winreg-forensic"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true

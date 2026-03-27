@@ -1,0 +1,10 @@
+[package]
+name = "winreg-recover"
+version = "0.1.0"
+description = "Deleted registry key/value recovery"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true

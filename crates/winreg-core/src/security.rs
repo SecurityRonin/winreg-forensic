@@ -1,0 +1,1 @@
+//! Security descriptor chain traversal.

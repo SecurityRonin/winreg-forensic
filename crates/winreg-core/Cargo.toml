@@ -1,0 +1,20 @@
+[package]
+name = "winreg-core"
+version = "0.1.0"
+description = "Core Windows Registry hive parser"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+winreg-format.workspace = true
+memmap2.workspace = true
+miette.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
