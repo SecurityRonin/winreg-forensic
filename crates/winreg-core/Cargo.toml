@@ -8,6 +8,7 @@ license.workspace = true
 
 [dependencies]
 winreg-format.workspace = true
+binrw.workspace = true
 memmap2.workspace = true
 miette.workspace = true
 thiserror.workspace = true
