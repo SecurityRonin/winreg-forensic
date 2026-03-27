@@ -48,7 +48,11 @@ impl OverlayBuffer {
                 })
                 .map_or_else(
                     || {
-                        usize::try_from(pos).ok().and_then(|idx| self.base.get(idx)).copied().unwrap_or(0)
+                        usize::try_from(pos)
+                            .ok()
+                            .and_then(|idx| self.base.get(idx))
+                            .copied()
+                            .unwrap_or(0)
                     },
                     |(&page_offset, page_data)| {
                         let idx = usize::try_from(pos - page_offset).unwrap_or(0);
@@ -85,10 +89,7 @@ impl OverlayBuffer {
 ///
 /// Reads the hive file and all log files, applies dirty pages from the logs,
 /// returns an `OverlayBuffer` that can be used with `Hive::from_bytes(overlay.materialize())`.
-pub fn replay_transaction_logs(
-    hive_data: Vec<u8>,
-    log_datas: &[Vec<u8>],
-) -> Result<OverlayBuffer> {
+pub fn replay_transaction_logs(hive_data: Vec<u8>, log_datas: &[Vec<u8>]) -> Result<OverlayBuffer> {
     let mut overlay = OverlayBuffer::new(hive_data);
 
     for log_data in log_datas {

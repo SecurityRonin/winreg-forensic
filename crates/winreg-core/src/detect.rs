@@ -5,7 +5,7 @@ use std::io::Cursor;
 use crate::hive::Hive;
 
 /// Known hive types.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 pub enum HiveType {
     System,
     Software,
