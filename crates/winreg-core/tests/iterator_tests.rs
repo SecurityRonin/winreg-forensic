@@ -53,9 +53,7 @@ fn empty_hive_iterates_root_only() {
 #[test]
 fn from_path_works() {
     use std::io::Write;
-    let data = TestHiveBuilder::new()
-        .add_key("Test")
-        .build();
+    let data = TestHiveBuilder::new().add_key("Test").build();
     let tmp = tempfile::NamedTempFile::new().unwrap();
     tmp.as_file().write_all(&data).unwrap();
     // Note: need to flush before reading

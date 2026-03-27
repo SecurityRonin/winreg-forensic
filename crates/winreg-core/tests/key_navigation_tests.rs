@@ -13,9 +13,7 @@ fn root_key_from_hive() {
 
 #[test]
 fn navigate_to_subkey() {
-    let data = TestHiveBuilder::new()
-        .add_key("Software")
-        .build();
+    let data = TestHiveBuilder::new().add_key("Software").build();
     let hive = Hive::from_bytes(data).unwrap();
     let root = hive.root_key().unwrap();
     let software = root.subkey("Software").unwrap();
@@ -25,9 +23,7 @@ fn navigate_to_subkey() {
 
 #[test]
 fn case_insensitive_lookup() {
-    let data = TestHiveBuilder::new()
-        .add_key("Software")
-        .build();
+    let data = TestHiveBuilder::new().add_key("Software").build();
     let hive = Hive::from_bytes(data).unwrap();
     let root = hive.root_key().unwrap();
     // Case-insensitive: "software" should find "Software"
@@ -63,9 +59,7 @@ fn open_key_convenience() {
 
 #[test]
 fn missing_subkey_returns_none() {
-    let data = TestHiveBuilder::new()
-        .add_key("Software")
-        .build();
+    let data = TestHiveBuilder::new().add_key("Software").build();
     let hive = Hive::from_bytes(data).unwrap();
     let root = hive.root_key().unwrap();
     let nope = root.subkey("NonExistent").unwrap();

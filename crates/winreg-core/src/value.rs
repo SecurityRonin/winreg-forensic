@@ -134,8 +134,11 @@ pub fn decode_multi_sz(data: &[u8]) -> Vec<String> {
     }
 
     if start < u16s.len() {
-        let remaining: Vec<u16> =
-            u16s[start..].iter().copied().take_while(|&c| c != 0).collect();
+        let remaining: Vec<u16> = u16s[start..]
+            .iter()
+            .copied()
+            .take_while(|&c| c != 0)
+            .collect();
         if !remaining.is_empty() {
             strings.push(String::from_utf16_lossy(&remaining));
         }
