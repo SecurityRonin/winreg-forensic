@@ -3,6 +3,7 @@
 //! Compare two `Hive` instances and produce a structured `DiffResult`
 //! with key-level and value-level changes.
 
+pub mod snapshot;
 pub mod types;
 
 pub use types::{
