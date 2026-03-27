@@ -1,0 +1,19 @@
+[package]
+name = "winreg-diff"
+version = "0.1.0"
+description = "Registry hive diff engine — compare two hive states"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+winreg-core.workspace = true
+winreg-format.workspace = true
+serde = { workspace = true }
+serde_json.workspace = true
+
+[dev-dependencies]
+winreg-core.workspace = true
+
+[lints]
+workspace = true

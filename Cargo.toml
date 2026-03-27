@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/winreg-format",
     "crates/winreg-core",
+    "crates/winreg-diff",
     "crates/winreg-recover",
     "crates/winreg-carve",
     "crates/winreg-artifacts",
@@ -46,6 +47,7 @@ tempfile = "3"
 # Internal
 winreg-format = { path = "crates/winreg-format" }
 winreg-core = { path = "crates/winreg-core" }
+winreg-diff = { path = "crates/winreg-diff" }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
