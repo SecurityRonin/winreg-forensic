@@ -56,22 +56,16 @@ impl Hive<Cursor<Vec<u8>>> {
         // Validate checksum.
         if !BaseBlock::validate_checksum(&data) {
             let computed = BaseBlock::compute_checksum(&data);
-            let expected = u32::from_le_bytes([
-                data[0x1FC],
-                data[0x1FD],
-                data[0x1FE],
-                data[0x1FF],
-            ]);
+            let expected = u32::from_le_bytes([data[0x1FC], data[0x1FD], data[0x1FE], data[0x1FF]]);
             return Err(HiveError::ChecksumMismatch { expected, computed });
         }
 
         // Determine version.
-        let version = RegfVersion::from_minor(header.minor_version).ok_or(
-            HiveError::UnsupportedVersion {
+        let version =
+            RegfVersion::from_minor(header.minor_version).ok_or(HiveError::UnsupportedVersion {
                 major: header.major_version,
                 minor: header.minor_version,
-            },
-        )?;
+            })?;
 
         // Catalog hive bins.
         let header_bytes = data[..BaseBlock::SIZE].to_vec();
@@ -147,16 +141,8 @@ fn catalog_hbins(data: &[u8], start: u64, expected_size: u64) -> Result<Vec<Hbin
             return Err(HiveError::InvalidHbin { file_offset });
         }
 
-        let offset = u32::from_le_bytes(
-            data[pos_usize + 4..pos_usize + 8]
-                .try_into()
-                .unwrap(),
-        );
-        let size = u32::from_le_bytes(
-            data[pos_usize + 8..pos_usize + 12]
-                .try_into()
-                .unwrap(),
-        );
+        let offset = u32::from_le_bytes(data[pos_usize + 4..pos_usize + 8].try_into().unwrap());
+        let size = u32::from_le_bytes(data[pos_usize + 8..pos_usize + 12].try_into().unwrap());
 
         if size == 0 || size % 4096 != 0 {
             break; // Invalid size — stop

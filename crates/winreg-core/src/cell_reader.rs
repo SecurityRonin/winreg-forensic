@@ -41,9 +41,7 @@ impl Hive<Cursor<Vec<u8>>> {
             });
         }
 
-        let header_bytes: [u8; 4] = data[file_offset..file_offset + 4]
-            .try_into()
-            .unwrap();
+        let header_bytes: [u8; 4] = data[file_offset..file_offset + 4].try_into().unwrap();
         let header = CellHeader::from_bytes(&header_bytes);
 
         if !header.is_allocated() {
@@ -95,12 +93,13 @@ impl Hive<Cursor<Vec<u8>>> {
                 Ok(Cell::KeyValue(vk))
             }
             Some(CellSignature::SecurityKey) => {
-                let sk = RawSecurityKey::parse(after_sig).ok_or(HiveError::InvalidCellSignature {
-                    offset,
-                    expected: "sk (valid security key)",
-                    byte0: sig_bytes[0],
-                    byte1: sig_bytes[1],
-                })?;
+                let sk =
+                    RawSecurityKey::parse(after_sig).ok_or(HiveError::InvalidCellSignature {
+                        offset,
+                        expected: "sk (valid security key)",
+                        byte0: sig_bytes[0],
+                        byte1: sig_bytes[1],
+                    })?;
                 Ok(Cell::SecurityKey(sk))
             }
             Some(CellSignature::FastLeaf) => {
@@ -198,7 +197,7 @@ mod tests {
         buf[cell_start..cell_start + 4].copy_from_slice(&cell_size.to_le_bytes());
         buf[cell_start + 4..cell_start + 6].copy_from_slice(b"nk");
         buf[cell_start + 6..cell_start + 8].copy_from_slice(&0x0024u16.to_le_bytes()); // HIVE_ENTRY | COMP_NAME
-        // key_name_len = 4 at offset +74 from cell body sig
+                                                                                       // key_name_len = 4 at offset +74 from cell body sig
         let name_len_offset = cell_start + 4 + 2 + 70; // size(4) + sig(2) + header fields(70)
         buf[name_len_offset..name_len_offset + 2].copy_from_slice(&4u16.to_le_bytes());
         // key name "root" at offset +76 from sig
