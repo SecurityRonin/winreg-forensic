@@ -27,11 +27,11 @@ const NTUSER_RUN_PATHS: &[&str] = &[
     "Software\\Microsoft\\Windows\\CurrentVersion\\RunServicesOnce",
 ];
 
-/// Winlogon key — same path in both SOFTWARE and NTUSER.DAT.
-const WINLOGON_PATH_SOFTWARE: &str =
-    "Microsoft\\Windows NT\\CurrentVersion\\Winlogon";
-const WINLOGON_PATH_NTUSER: &str =
-    "Software\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon";
+/// Winlogon key path for a SOFTWARE hive.
+const WINLOGON_PATH_SOFTWARE: &str = "Microsoft\\Windows NT\\CurrentVersion\\Winlogon";
+
+/// Winlogon key path for an NTUSER.DAT hive.
+const WINLOGON_PATH_NTUSER: &str = "Software\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon";
 
 /// Winlogon values that can hold persistence commands.
 const WINLOGON_VALUES: &[&str] = &["Userinit", "Shell"];
@@ -61,9 +61,84 @@ pub struct RunKeyEntry {
 /// Classify a run-key command string for suspicious LOLBin abuse patterns.
 ///
 /// Returns `Some(reason)` when suspicious, `None` when benign.
+///
+/// Patterns detected:
+/// - `powershell` with `-enc` or `-encodedcommand`
+/// - `cmd` with `/c` and (`http`, `ftp`, or `\\`)
+/// - `mshta` anywhere in the command
+/// - `regsvr32` with `/s /n` or `/u /s`
+/// - `certutil` with `-decode` or `-urlcache`
+/// - `bitsadmin` with `/transfer`
+/// - `wscript` or `cscript` launched from `\temp\` or `\appdata\`
+/// - `rundll32` with a path containing `\temp\` or `\appdata\`
+/// - path contains `\temp\` or `\appdata\local\temp\`
+/// - `msiexec` with `/q` and `http`
 pub fn classify_run_entry(command: &str) -> Option<String> {
-    // stub: always returns None
-    let _ = command;
+    if command.is_empty() {
+        return None;
+    }
+
+    let lower = command.to_ascii_lowercase();
+
+    // PowerShell encoded command
+    if lower.contains("powershell") && (lower.contains("-enc") || lower.contains("-encodedcommand"))
+    {
+        return Some("powershell encoded command (-enc / -encodedcommand)".to_string());
+    }
+
+    // cmd /c with network or UNC path
+    if lower.contains("cmd") && lower.contains("/c") {
+        if lower.contains("http") || lower.contains("ftp") || lower.contains("\\\\") {
+            return Some("cmd /c with remote resource (http/ftp/UNC)".to_string());
+        }
+    }
+
+    // mshta
+    if lower.contains("mshta") {
+        return Some("mshta execution (HTML Application host abuse)".to_string());
+    }
+
+    // regsvr32 squiblydoo / bypass
+    if lower.contains("regsvr32") && (lower.contains("/s") && lower.contains("/n"))
+        || (lower.contains("regsvr32") && lower.contains("/u") && lower.contains("/s"))
+    {
+        return Some("regsvr32 /s /n or /u /s (AppLocker bypass / squiblydoo)".to_string());
+    }
+
+    // certutil download cradle or decode
+    if lower.contains("certutil") && (lower.contains("-decode") || lower.contains("-urlcache")) {
+        return Some("certutil -decode or -urlcache (download cradle / obfuscation)".to_string());
+    }
+
+    // bitsadmin
+    if lower.contains("bitsadmin") && lower.contains("/transfer") {
+        return Some("bitsadmin /transfer (BITS download abuse)".to_string());
+    }
+
+    // wscript/cscript from temp or appdata
+    if (lower.contains("wscript") || lower.contains("cscript"))
+        && (lower.contains("\\temp\\") || lower.contains("\\appdata\\"))
+    {
+        return Some("wscript/cscript launched from \\temp\\ or \\appdata\\ path".to_string());
+    }
+
+    // rundll32 from temp or appdata
+    if lower.contains("rundll32")
+        && (lower.contains("\\temp\\") || lower.contains("\\appdata\\"))
+    {
+        return Some("rundll32 with DLL in \\temp\\ or \\appdata\\ path".to_string());
+    }
+
+    // path itself is in temp or appdata\local\temp
+    if lower.contains("\\appdata\\local\\temp\\") || lower.starts_with("\\temp\\") {
+        return Some("executable path is in \\temp\\ or \\appdata\\local\\temp\\".to_string());
+    }
+
+    // msiexec silent with HTTP URL
+    if lower.contains("msiexec") && lower.contains("/q") && lower.contains("http") {
+        return Some("msiexec /q with HTTP URL (silent remote install)".to_string());
+    }
+
     None
 }
 
@@ -72,9 +147,67 @@ pub fn classify_run_entry(command: &str) -> Option<String> {
 /// Extract all Run-key entries from a hive.
 ///
 /// Auto-detects whether the hive is a SOFTWARE (HKLM) or NTUSER.DAT (HKCU)
-/// hive and selects the appropriate key paths accordingly.
+/// hive and selects the appropriate key paths accordingly.  Winlogon
+/// `Userinit` and `Shell` values are also collected.
 pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<RunKeyEntry> {
-    // stub: always returns empty
-    let _ = hive;
-    vec![]
+    let hive_type = hive.detect_hive_type();
+
+    let (hive_label, run_paths, winlogon_path) = match hive_type {
+        HiveType::Software => ("HKLM", SOFTWARE_RUN_PATHS, WINLOGON_PATH_SOFTWARE),
+        HiveType::NtUser => ("HKCU", NTUSER_RUN_PATHS, WINLOGON_PATH_NTUSER),
+        // For unknown hive types, try SOFTWARE paths as a best-effort.
+        _ => ("UNKNOWN", SOFTWARE_RUN_PATHS, WINLOGON_PATH_SOFTWARE),
+    };
+
+    let mut entries: Vec<RunKeyEntry> = Vec::new();
+
+    // Enumerate standard Run/RunOnce/… key paths.
+    for &key_path in run_paths {
+        let key = match hive.open_key(key_path) {
+            Ok(Some(k)) => k,
+            _ => continue,
+        };
+
+        let values = match key.values() {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        for val in values {
+            let command = val.as_string().unwrap_or_default();
+            let suspicious_reason = classify_run_entry(&command);
+            let is_suspicious = suspicious_reason.is_some();
+            entries.push(RunKeyEntry {
+                hive: hive_label.to_string(),
+                key_path: key_path.to_string(),
+                value_name: val.name(),
+                command,
+                is_suspicious,
+                suspicious_reason,
+            });
+        }
+    }
+
+    // Enumerate Winlogon persistence values.
+    if let Ok(Some(winlogon)) = hive.open_key(winlogon_path) {
+        for &vname in WINLOGON_VALUES {
+            let val = match winlogon.value(vname) {
+                Ok(Some(v)) => v,
+                _ => continue,
+            };
+            let command = val.as_string().unwrap_or_default();
+            let suspicious_reason = classify_run_entry(&command);
+            let is_suspicious = suspicious_reason.is_some();
+            entries.push(RunKeyEntry {
+                hive: hive_label.to_string(),
+                key_path: winlogon_path.to_string(),
+                value_name: vname.to_string(),
+                command,
+                is_suspicious,
+                suspicious_reason,
+            });
+        }
+    }
+
+    entries
 }
