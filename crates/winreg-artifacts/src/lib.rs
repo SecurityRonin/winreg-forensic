@@ -3,5 +3,6 @@
 pub mod amcache;
 pub mod registry_keys;
 pub mod run_keys;
+pub mod shellbags;
 pub mod typed_urls;
 pub mod userassist;
