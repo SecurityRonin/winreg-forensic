@@ -5,7 +5,7 @@
 
 use std::io::Cursor;
 
-use winreg_core::hive::{Hive, ReadSeek};
+use winreg_core::hive::Hive;
 
 /// Metadata for a single registry key.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -14,7 +14,7 @@ pub struct RegistryKeyInfo {
     pub path: String,
     /// Just the key name (last component).
     pub name: String,
-    /// ISO 8601 timestamp, or `None` if not set.
+    /// ISO 8601 timestamp, or `None` if not set / zero FILETIME.
     pub last_written: Option<String>,
     /// Number of direct subkeys.
     pub subkey_count: usize,
@@ -38,19 +38,156 @@ pub struct RegistryValueInfo {
 }
 
 /// Walk all keys in the hive (BFS order), returning metadata for each.
-pub fn walk_keys(_hive: &Hive<Cursor<Vec<u8>>>) -> Vec<RegistryKeyInfo> {
-    todo!("walk_keys not yet implemented")
+pub fn walk_keys(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<RegistryKeyInfo> {
+    let iter = match hive.iter_bfs() {
+        Ok(it) => it,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut result = Vec::new();
+    for item in iter {
+        let key = match item {
+            Ok(k) => k,
+            Err(_) => continue,
+        };
+
+        let path = if key.is_root() {
+            // Root key: path is empty string (no path from root to root)
+            String::new()
+        } else {
+            key.path().unwrap_or_default()
+        };
+
+        let last_written = key
+            .last_written()
+            .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S").to_string());
+
+        result.push(RegistryKeyInfo {
+            name: key.name(),
+            path,
+            last_written,
+            subkey_count: key.subkey_count() as usize,
+            value_count: key.value_count() as usize,
+        });
+    }
+    result
 }
 
 /// Walk all values under a specific key path.
 ///
-/// Returns an empty `Vec` if the path is not found.
-pub fn walk_values(_hive: &Hive<Cursor<Vec<u8>>>, _key_path: &str) -> Vec<RegistryValueInfo> {
-    todo!("walk_values not yet implemented")
+/// Returns an empty `Vec` if the path is not found or the key has no values.
+pub fn walk_values(hive: &Hive<Cursor<Vec<u8>>>, key_path: &str) -> Vec<RegistryValueInfo> {
+    let key = match hive.open_key(key_path) {
+        Ok(Some(k)) => k,
+        _ => return Vec::new(),
+    };
+
+    let values = match key.values() {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+
+    values
+        .into_iter()
+        .map(|v| value_to_info(v, key_path))
+        .collect()
 }
 
 /// Walk all keys AND their values recursively (BFS), returning a `RegistryValueInfo`
 /// for every value in the hive.
-pub fn walk_all_values(_hive: &Hive<Cursor<Vec<u8>>>) -> Vec<RegistryValueInfo> {
-    todo!("walk_all_values not yet implemented")
+pub fn walk_all_values(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<RegistryValueInfo> {
+    let iter = match hive.iter_bfs() {
+        Ok(it) => it,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut result = Vec::new();
+    for item in iter {
+        let key = match item {
+            Ok(k) => k,
+            Err(_) => continue,
+        };
+
+        let key_path = if key.is_root() {
+            String::new()
+        } else {
+            key.path().unwrap_or_default()
+        };
+
+        let values = match key.values() {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        for v in values {
+            result.push(value_to_info(v, &key_path));
+        }
+    }
+    result
+}
+
+// ── Internal helpers ────────────────────────────────────────────────────────
+
+/// Convert a `winreg_core::value::Value` into a `RegistryValueInfo`.
+fn value_to_info(v: winreg_core::value::Value<'_>, key_path: &str) -> RegistryValueInfo {
+    let data_type = v.data_type().to_string();
+    let raw_size = v.data_size() as usize;
+    let data_preview = build_preview(&v);
+
+    RegistryValueInfo {
+        key_path: key_path.to_string(),
+        name: v.name(),
+        data_type,
+        data_preview,
+        raw_size,
+    }
+}
+
+/// Build a human-readable preview of the value data, truncated at 256 chars.
+fn build_preview(v: &winreg_core::value::Value<'_>) -> String {
+    use winreg_format::flags::ValueType;
+
+    match v.data_type() {
+        ValueType::Sz | ValueType::ExpandSz | ValueType::Link => {
+            let s = v.as_string().unwrap_or_default();
+            truncate_string(s, 256)
+        }
+        ValueType::Dword => {
+            let n = v.as_u32().unwrap_or(0);
+            format!("0x{n:08X} ({n})")
+        }
+        ValueType::DwordBigEndian => {
+            let n = v.as_u32_be().unwrap_or(0);
+            format!("0x{n:08X} ({n})")
+        }
+        ValueType::Qword => {
+            let n = v.as_u64().unwrap_or(0);
+            format!("0x{n:016X} ({n})")
+        }
+        ValueType::MultiSz => {
+            let parts = v.as_multi_string().unwrap_or_default();
+            let joined = parts.join(" | ");
+            truncate_string(joined, 256)
+        }
+        _ => {
+            // Binary / Unknown: hex preview up to 32 bytes
+            let data = v.raw_data().unwrap_or_default();
+            let preview_len = data.len().min(32);
+            let hex: Vec<String> = data[..preview_len].iter().map(|b| format!("{b:02X}")).collect();
+            let s = hex.join(" ");
+            if data.len() > 32 {
+                format!("{s}...")
+            } else {
+                s
+            }
+        }
+    }
+}
+
+/// Truncate a `String` to at most `max_chars` characters.
+fn truncate_string(mut s: String, max_chars: usize) -> String {
+    if s.chars().count() > max_chars {
+        s = s.chars().take(max_chars).collect();
+    }
+    s
 }
