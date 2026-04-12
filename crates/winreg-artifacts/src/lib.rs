@@ -1,1 +1,3 @@
-//! Forensic artifact decoders for Windows Registry — placeholder, implementation in Plan 2.
+//! Forensic artifact decoders for Windows Registry.
+
+pub mod registry_keys;
