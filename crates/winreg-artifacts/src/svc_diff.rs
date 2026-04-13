@@ -117,5 +117,79 @@ pub fn classify_service(
 /// extracts relevant values (with safe defaults for missing values), classifies
 /// each entry, and returns the full list (both suspicious and benign).
 pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<ServiceEntry> {
-    Vec::new()
+    let services_key = match hive.open_key(SERVICES_KEY) {
+        Ok(Some(k)) => k,
+        _ => return Vec::new(),
+    };
+
+    let subkeys = match services_key.subkeys() {
+        Ok(k) => k,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut entries = Vec::with_capacity(subkeys.len());
+
+    for svc_key in subkeys {
+        let name = svc_key.name();
+
+        // Read values with safe defaults.
+        let image_path = svc_key
+            .value("ImagePath")
+            .ok()
+            .flatten()
+            .and_then(|v| v.as_string().ok())
+            .unwrap_or_default();
+
+        let display_name = svc_key
+            .value("DisplayName")
+            .ok()
+            .flatten()
+            .and_then(|v| v.as_string().ok())
+            .unwrap_or_default();
+
+        let description = svc_key
+            .value("Description")
+            .ok()
+            .flatten()
+            .and_then(|v| v.as_string().ok())
+            .unwrap_or_default();
+
+        let start_type = svc_key
+            .value("Start")
+            .ok()
+            .flatten()
+            .and_then(|v| v.as_u32().ok())
+            .unwrap_or(3); // default: Manual
+
+        let service_type = svc_key
+            .value("Type")
+            .ok()
+            .flatten()
+            .and_then(|v| v.as_u32().ok())
+            .unwrap_or(0);
+
+        let object_name = svc_key
+            .value("ObjectName")
+            .ok()
+            .flatten()
+            .and_then(|v| v.as_string().ok())
+            .unwrap_or_default();
+
+        let (is_suspicious, suspicious_reason) =
+            classify_service(&image_path, start_type, &description, &object_name);
+
+        entries.push(ServiceEntry {
+            name,
+            display_name,
+            image_path,
+            start_type,
+            service_type,
+            object_name,
+            description,
+            is_suspicious,
+            suspicious_reason,
+        });
+    }
+
+    entries
 }
