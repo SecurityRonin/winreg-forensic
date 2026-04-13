@@ -55,16 +55,37 @@ pub struct Dcc2SlotEntry {
 /// Return `true` when the secret name is forensically interesting.
 ///
 /// Interesting names:
-/// - `$MACHINE.ACC`   — machine account password
+/// - `$MACHINE.ACC`    — machine account password
 /// - `DefaultPassword` — auto-logon password stored in plaintext
-/// - `DPAPI_SYSTEM`   — DPAPI master key protector
-/// - `NL$KM`          — DCC2 encryption key
-/// - `_SC_` prefix    — service account passwords
-/// - `RasDialParams`  — saved VPN/dial-up credentials
+/// - `DPAPI_SYSTEM`    — DPAPI master key protector
+/// - `NL$KM`           — DCC2 encryption key
+/// - `_SC_` prefix     — service account passwords
+/// - `RasDialParams`   — saved VPN/dial-up credentials
 pub fn is_interesting_secret(name: &str) -> bool {
-    // stub — always returns false
-    let _ = name;
-    false
+    matches!(
+        name,
+        "$MACHINE.ACC" | "DefaultPassword" | "DPAPI_SYSTEM" | "NL$KM" | "RasDialParams"
+    ) || name.starts_with("_SC_")
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/// Read the first REG_BINARY value under a key and return its byte length.
+/// Returns 0 if the key is absent or has no values.
+fn read_binary_value_size(hive: &Hive<Cursor<Vec<u8>>>, key_path: &str) -> usize {
+    let key = match hive.open_key(key_path) {
+        Ok(Some(k)) => k,
+        _ => return 0,
+    };
+    // Try the named "(default)" value first, then fall back to the first value.
+    if let Ok(values) = key.values() {
+        for val in &values {
+            if let Ok(data) = val.raw_data() {
+                return data.len();
+            }
+        }
+    }
+    0
 }
 
 // ── Public parse functions ────────────────────────────────────────────────────
@@ -73,12 +94,78 @@ pub fn is_interesting_secret(name: &str) -> bool {
 ///
 /// Does NOT decrypt — returns names and sizes only.
 pub fn parse_secrets(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<LsaSecretEntry> {
-    let _ = hive;
-    vec![]
+    let secrets_key = match hive.open_key("Policy\\Secrets") {
+        Ok(Some(k)) => k,
+        _ => return Vec::new(),
+    };
+
+    let subkeys = match secrets_key.subkeys() {
+        Ok(k) => k,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut entries = Vec::with_capacity(subkeys.len());
+
+    for secret_key in subkeys {
+        let name = secret_key.name();
+
+        let currval_path = format!("Policy\\Secrets\\{name}\\CurrVal");
+        let oldval_path = format!("Policy\\Secrets\\{name}\\OldVal");
+
+        let curr_size = read_binary_value_size(hive, &currval_path);
+        let old_size = read_binary_value_size(hive, &oldval_path);
+
+        let has_current = curr_size > 0;
+        let has_old = old_size > 0;
+        let is_interesting = is_interesting_secret(&name);
+
+        entries.push(LsaSecretEntry {
+            name,
+            has_current,
+            has_old,
+            curr_size,
+            old_size,
+            is_interesting,
+        });
+    }
+
+    entries
 }
 
 /// Enumerate DCC2 cache slot occupancy from `SECURITY\Cache`.
 pub fn parse_dcc2_slots(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<Dcc2SlotEntry> {
-    let _ = hive;
-    vec![]
+    let cache_key = match hive.open_key("Cache") {
+        Ok(Some(k)) => k,
+        _ => return Vec::new(),
+    };
+
+    let subkeys = match cache_key.subkeys() {
+        Ok(k) => k,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut slots = Vec::with_capacity(subkeys.len());
+
+    for slot_key in subkeys {
+        let slot_name = slot_key.name();
+
+        // Read the first (default) binary value from this slot.
+        let data_size = if let Ok(values) = slot_key.values() {
+            values
+                .into_iter()
+                .find_map(|v| v.raw_data().ok())
+                .map(|d| d.len())
+                .unwrap_or(0)
+        } else {
+            0
+        };
+
+        slots.push(Dcc2SlotEntry {
+            slot_name,
+            is_populated: data_size > 0,
+            data_size,
+        });
+    }
+
+    slots
 }
