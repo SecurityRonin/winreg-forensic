@@ -8,4 +8,5 @@ pub mod sam;
 pub mod shellbags;
 pub mod shimcache;
 pub mod typed_urls;
+pub mod svc_diff;
 pub mod userassist;
