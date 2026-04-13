@@ -6,5 +6,6 @@ pub mod registry_keys;
 pub mod run_keys;
 pub mod sam;
 pub mod shellbags;
+pub mod shimcache;
 pub mod typed_urls;
 pub mod userassist;

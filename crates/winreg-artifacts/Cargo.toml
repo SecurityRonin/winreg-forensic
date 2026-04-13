@@ -14,6 +14,7 @@ chrono.workspace = true
 
 [dev-dependencies]
 winreg-format.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true
