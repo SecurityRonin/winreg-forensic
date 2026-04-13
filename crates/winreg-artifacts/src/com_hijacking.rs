@@ -31,6 +31,9 @@ pub struct ComHijackInfo {
 /// Classify a HKCU COM server path.
 ///
 /// Returns `(is_suspicious, reason)`.
+/// Suspicious when the path is in a user-writable directory (`\temp\`,
+/// `\appdata\`, `\downloads\`, `\public\`, `\programdata\`), or when it
+/// overrides a non-empty HKCR registration with a different path.
 pub fn classify_com_hijack(_hkcr_server: &str, _hkcu_server: &str) -> (bool, Option<String>) {
     (false, None)
 }
@@ -38,6 +41,9 @@ pub fn classify_com_hijack(_hkcr_server: &str, _hkcu_server: &str) -> (bool, Opt
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /// Parse COM hijacking candidates from a pair of hives.
+///
+/// `hku_hive`: NTUSER.DAT — contains `Software\Classes\CLSID` user overrides.
+/// `hkcr_hive`: SOFTWARE or USRCLASS.DAT — contains the system-wide CLSID registrations.
 pub fn parse_pair(
     _hku_hive: &Hive<Cursor<Vec<u8>>>,
     _hkcr_hive: &Hive<Cursor<Vec<u8>>>,
@@ -46,6 +52,8 @@ pub fn parse_pair(
 }
 
 /// Parse user-side COM registrations from a single NTUSER.DAT hive.
+///
+/// Returns entries without HKCR comparison (`hkcr_server` will be empty).
 pub fn parse_hkcu_only(_hku_hive: &Hive<Cursor<Vec<u8>>>) -> Vec<ComHijackInfo> {
     vec![]
 }
