@@ -2,6 +2,7 @@
 
 pub mod amcache;
 pub mod com_hijacking;
+pub mod lsadump;
 pub mod registry_keys;
 pub mod run_keys;
 pub mod sam;
