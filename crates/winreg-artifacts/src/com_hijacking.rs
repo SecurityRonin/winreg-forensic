@@ -34,7 +34,33 @@ pub struct ComHijackInfo {
 /// Suspicious when the path is in a user-writable directory (`\temp\`,
 /// `\appdata\`, `\downloads\`, `\public\`, `\programdata\`), or when it
 /// overrides a non-empty HKCR registration with a different path.
-pub fn classify_com_hijack(_hkcr_server: &str, _hkcu_server: &str) -> (bool, Option<String>) {
+pub fn classify_com_hijack(hkcr_server: &str, hkcu_server: &str) -> (bool, Option<String>) {
+    if hkcu_server.is_empty() {
+        return (false, None);
+    }
+    let lower = hkcu_server.to_ascii_lowercase();
+
+    if lower.contains("\\temp\\") {
+        return (true, Some("DLL in \\temp\\".to_string()));
+    }
+    if lower.contains("\\appdata\\") {
+        return (true, Some("DLL in \\appdata\\".to_string()));
+    }
+    if lower.contains("\\downloads\\") {
+        return (true, Some("DLL in \\downloads\\".to_string()));
+    }
+    if lower.contains("\\public\\") {
+        return (true, Some("DLL in \\public\\".to_string()));
+    }
+    if lower.contains("\\programdata\\") {
+        return (true, Some("DLL in \\programdata\\".to_string()));
+    }
+    if !hkcr_server.is_empty() && !hkcu_server.eq_ignore_ascii_case(hkcr_server) {
+        return (
+            true,
+            Some(format!("HKCU overrides HKCR ({hkcr_server})")),
+        );
+    }
     (false, None)
 }
 
@@ -45,15 +71,127 @@ pub fn classify_com_hijack(_hkcr_server: &str, _hkcu_server: &str) -> (bool, Opt
 /// `hku_hive`: NTUSER.DAT — contains `Software\Classes\CLSID` user overrides.
 /// `hkcr_hive`: SOFTWARE or USRCLASS.DAT — contains the system-wide CLSID registrations.
 pub fn parse_pair(
-    _hku_hive: &Hive<Cursor<Vec<u8>>>,
-    _hkcr_hive: &Hive<Cursor<Vec<u8>>>,
+    hku_hive: &Hive<Cursor<Vec<u8>>>,
+    hkcr_hive: &Hive<Cursor<Vec<u8>>>,
 ) -> Vec<ComHijackInfo> {
-    vec![]
+    let mut results = Vec::new();
+
+    let clsid_key = match hku_hive.open_key("Software\\Classes\\CLSID") {
+        Ok(Some(k)) => k,
+        _ => return results,
+    };
+
+    let guids = match clsid_key.subkeys() {
+        Ok(v) => v,
+        Err(_) => return results,
+    };
+
+    for guid_key in guids {
+        let clsid = guid_key.name();
+
+        // Find InprocServer32 under this GUID key in HKCU
+        let inproc = match guid_key.subkey("InprocServer32") {
+            Ok(Some(k)) => k,
+            _ => continue,
+        };
+
+        let hkcu_server = read_default_value(&inproc);
+        if hkcu_server.is_empty() {
+            continue;
+        }
+
+        // Look up the same CLSID in HKCR
+        let hkcr_server = read_hkcr_server(hkcr_hive, &clsid);
+
+        let (is_suspicious, suspicious_reason) = classify_com_hijack(&hkcr_server, &hkcu_server);
+
+        results.push(ComHijackInfo {
+            clsid,
+            hkcu_server,
+            hkcr_server,
+            is_suspicious,
+            suspicious_reason,
+        });
+    }
+
+    results
 }
 
 /// Parse user-side COM registrations from a single NTUSER.DAT hive.
 ///
 /// Returns entries without HKCR comparison (`hkcr_server` will be empty).
-pub fn parse_hkcu_only(_hku_hive: &Hive<Cursor<Vec<u8>>>) -> Vec<ComHijackInfo> {
-    vec![]
+pub fn parse_hkcu_only(hku_hive: &Hive<Cursor<Vec<u8>>>) -> Vec<ComHijackInfo> {
+    let mut results = Vec::new();
+
+    let clsid_key = match hku_hive.open_key("Software\\Classes\\CLSID") {
+        Ok(Some(k)) => k,
+        _ => return results,
+    };
+
+    let guids = match clsid_key.subkeys() {
+        Ok(v) => v,
+        Err(_) => return results,
+    };
+
+    for guid_key in guids {
+        let clsid = guid_key.name();
+
+        let inproc = match guid_key.subkey("InprocServer32") {
+            Ok(Some(k)) => k,
+            _ => continue,
+        };
+
+        let hkcu_server = read_default_value(&inproc);
+        if hkcu_server.is_empty() {
+            continue;
+        }
+
+        let (is_suspicious, suspicious_reason) = classify_com_hijack("", &hkcu_server);
+
+        results.push(ComHijackInfo {
+            clsid,
+            hkcu_server,
+            hkcr_server: String::new(),
+            is_suspicious,
+            suspicious_reason,
+        });
+    }
+
+    results
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/// Read the default (empty-name) value from a key as a string.
+fn read_default_value(key: &winreg_core::key::Key<'_>) -> String {
+    let vals = match key.values() {
+        Ok(v) => v,
+        Err(_) => return String::new(),
+    };
+    for val in vals {
+        if val.name().is_empty() {
+            return val.as_string().unwrap_or_default();
+        }
+    }
+    String::new()
+}
+
+/// Try to look up the CLSID InprocServer32 default value in the HKCR hive.
+///
+/// Tries multiple path prefixes to handle both SOFTWARE hives and USRCLASS.DAT.
+fn read_hkcr_server(hkcr_hive: &Hive<Cursor<Vec<u8>>>, clsid: &str) -> String {
+    let paths = [
+        format!("SOFTWARE\\Classes\\CLSID\\{clsid}\\InprocServer32"),
+        format!("Classes\\CLSID\\{clsid}\\InprocServer32"),
+        format!("CLSID\\{clsid}\\InprocServer32"),
+    ];
+    for path in &paths {
+        if let Ok(Some(k)) = hkcr_hive.open_key(path) {
+            let s = read_default_value(&k);
+            if !s.is_empty() {
+                return s;
+            }
+        }
+    }
+    String::new()
 }
