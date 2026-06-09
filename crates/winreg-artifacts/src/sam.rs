@@ -44,7 +44,8 @@ const F_PASSWORD_LAST_SET_OFF: usize = 16;
 const F_ACCOUNT_EXPIRES_OFF: usize = 24;
 const F_ACCOUNT_FLAGS_OFF: usize = 56;
 const F_LOGIN_COUNT_OFF: usize = 66;
-const F_MIN_LEN: usize = 68; // need at least up to byte 67
+// (`read_u32`/`read_u16`/`read_filetime` bounds-check each access, so no separate
+// minimum-length guard is needed.)
 
 const ACCOUNT_DISABLED: u32 = 0x0001;
 const ACCOUNT_LOCKED: u32 = 0x0010;
