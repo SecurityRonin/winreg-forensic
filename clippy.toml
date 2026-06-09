@@ -1,0 +1,6 @@
+# Production code keeps clippy::unwrap_used/expect_used = deny (workspace Cargo.toml);
+# tests legitimately unwrap to fail loudly.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+
+doc-valid-idents = ["NK", "VK", "SK", "REGF", "HvLE", "DiRT", "RegBack", "NTUSER", "UsrClass", "SAM", "ShellBags", "ShimCache", "Amcache", "RegRipper", "SHA-256", "MD5", "BCD", "..", "UTF-16LE", "AppCompat"]

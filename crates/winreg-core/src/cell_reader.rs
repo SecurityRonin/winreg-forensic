@@ -41,7 +41,10 @@ impl Hive<Cursor<Vec<u8>>> {
             });
         }
 
-        let header_bytes: [u8; 4] = data[file_offset..file_offset + 4].try_into().unwrap();
+        let header_bytes: [u8; 4] = data
+            .get(file_offset..file_offset + 4)
+            .and_then(|s| <[u8; 4]>::try_from(s).ok())
+            .unwrap_or([0; 4]);
         let header = CellHeader::from_bytes(&header_bytes);
 
         if !header.is_allocated() {

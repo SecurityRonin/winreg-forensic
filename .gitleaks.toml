@@ -1,0 +1,3 @@
+title = "winreg-forensic gitleaks config"
+[extend]
+useDefault = true

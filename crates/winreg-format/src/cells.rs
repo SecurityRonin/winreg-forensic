@@ -1,7 +1,7 @@
 //! Cell types and the `CellOffset` newtype.
 
-use binrw::BinRead;
 use crate::flags::{KeyFlags, ValueFlags, ValueType};
+use binrw::BinRead;
 
 /// Offset to a cell within hive bins data.
 ///
@@ -149,14 +149,38 @@ mod tests {
 
     #[test]
     fn cell_signatures() {
-        assert_eq!(CellSignature::from_bytes(b"nk"), Some(CellSignature::KeyNode));
-        assert_eq!(CellSignature::from_bytes(b"vk"), Some(CellSignature::KeyValue));
-        assert_eq!(CellSignature::from_bytes(b"sk"), Some(CellSignature::SecurityKey));
-        assert_eq!(CellSignature::from_bytes(b"lf"), Some(CellSignature::FastLeaf));
-        assert_eq!(CellSignature::from_bytes(b"lh"), Some(CellSignature::HashLeaf));
-        assert_eq!(CellSignature::from_bytes(b"li"), Some(CellSignature::IndexLeaf));
-        assert_eq!(CellSignature::from_bytes(b"ri"), Some(CellSignature::RootIndex));
-        assert_eq!(CellSignature::from_bytes(b"db"), Some(CellSignature::BigData));
+        assert_eq!(
+            CellSignature::from_bytes(b"nk"),
+            Some(CellSignature::KeyNode)
+        );
+        assert_eq!(
+            CellSignature::from_bytes(b"vk"),
+            Some(CellSignature::KeyValue)
+        );
+        assert_eq!(
+            CellSignature::from_bytes(b"sk"),
+            Some(CellSignature::SecurityKey)
+        );
+        assert_eq!(
+            CellSignature::from_bytes(b"lf"),
+            Some(CellSignature::FastLeaf)
+        );
+        assert_eq!(
+            CellSignature::from_bytes(b"lh"),
+            Some(CellSignature::HashLeaf)
+        );
+        assert_eq!(
+            CellSignature::from_bytes(b"li"),
+            Some(CellSignature::IndexLeaf)
+        );
+        assert_eq!(
+            CellSignature::from_bytes(b"ri"),
+            Some(CellSignature::RootIndex)
+        );
+        assert_eq!(
+            CellSignature::from_bytes(b"db"),
+            Some(CellSignature::BigData)
+        );
         assert_eq!(CellSignature::from_bytes(b"xx"), None);
     }
 }
@@ -203,7 +227,8 @@ impl RawKeyNode {
         let subkey_count = u32::from_le_bytes(data[18..22].try_into().ok()?);
         let volatile_subkey_count = u32::from_le_bytes(data[22..26].try_into().ok()?);
         let subkeys_list_offset = CellOffset(u32::from_le_bytes(data[26..30].try_into().ok()?));
-        let volatile_subkeys_list_offset = CellOffset(u32::from_le_bytes(data[30..34].try_into().ok()?));
+        let volatile_subkeys_list_offset =
+            CellOffset(u32::from_le_bytes(data[30..34].try_into().ok()?));
         let value_count = u32::from_le_bytes(data[34..38].try_into().ok()?);
         let values_list_offset = CellOffset(u32::from_le_bytes(data[38..42].try_into().ok()?));
         let security_offset = CellOffset(u32::from_le_bytes(data[42..46].try_into().ok()?));
@@ -224,11 +249,26 @@ impl RawKeyNode {
         let key_name_raw = data[name_start..name_end].to_vec();
 
         Some(Self {
-            flags, last_written, access_bits, parent, subkey_count,
-            volatile_subkey_count, subkeys_list_offset, volatile_subkeys_list_offset,
-            value_count, values_list_offset, security_offset, class_name_offset,
-            max_subkey_name_compound, max_subkey_class_len, max_value_name_len,
-            max_value_data_size, work_var, key_name_len, class_name_len, key_name_raw,
+            flags,
+            last_written,
+            access_bits,
+            parent,
+            subkey_count,
+            volatile_subkey_count,
+            subkeys_list_offset,
+            volatile_subkeys_list_offset,
+            value_count,
+            values_list_offset,
+            security_offset,
+            class_name_offset,
+            max_subkey_name_compound,
+            max_subkey_class_len,
+            max_value_name_len,
+            max_value_data_size,
+            work_var,
+            key_name_len,
+            class_name_len,
+            key_name_raw,
         })
     }
 
@@ -236,8 +276,11 @@ impl RawKeyNode {
         if self.flags.contains(KeyFlags::COMP_NAME) {
             self.key_name_raw.iter().map(|&b| b as char).collect()
         } else {
-            let u16s: Vec<u16> = self.key_name_raw.chunks_exact(2)
-                .map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+            let u16s: Vec<u16> = self
+                .key_name_raw
+                .chunks_exact(2)
+                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .collect();
             String::from_utf16_lossy(&u16s)
         }
     }
@@ -280,7 +323,14 @@ impl RawKeyValue {
         }
         let name_raw = data[name_start..name_end].to_vec();
 
-        Some(Self { name_len, data_size_raw, data_offset_raw, data_type, flags, name_raw })
+        Some(Self {
+            name_len,
+            data_size_raw,
+            data_offset_raw,
+            data_type,
+            flags,
+            name_raw,
+        })
     }
 
     pub fn is_resident(&self) -> bool {
@@ -308,8 +358,11 @@ impl RawKeyValue {
         if self.flags.contains(ValueFlags::COMP_NAME) {
             self.name_raw.iter().map(|&b| b as char).collect()
         } else {
-            let u16s: Vec<u16> = self.name_raw.chunks_exact(2)
-                .map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+            let u16s: Vec<u16> = self
+                .name_raw
+                .chunks_exact(2)
+                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .collect();
             String::from_utf16_lossy(&u16s)
         }
     }
@@ -327,10 +380,18 @@ mod nk_vk_tests {
         buf[2..10].copy_from_slice(&1000u64.to_le_bytes());
         buf[14..18].copy_from_slice(&0x20u32.to_le_bytes());
         buf[18..22].copy_from_slice(&subkey_count.to_le_bytes());
-        let sk_offset = if subkey_count > 0 { 0x100u32 } else { 0xFFFF_FFFFu32 };
+        let sk_offset = if subkey_count > 0 {
+            0x100u32
+        } else {
+            0xFFFF_FFFFu32
+        };
         buf[26..30].copy_from_slice(&sk_offset.to_le_bytes());
         buf[34..38].copy_from_slice(&value_count.to_le_bytes());
-        let vl_offset = if value_count > 0 { 0x200u32 } else { 0xFFFF_FFFFu32 };
+        let vl_offset = if value_count > 0 {
+            0x200u32
+        } else {
+            0xFFFF_FFFFu32
+        };
         buf[38..42].copy_from_slice(&vl_offset.to_le_bytes());
         buf[42..46].copy_from_slice(&0x300u32.to_le_bytes());
         buf[46..50].copy_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
@@ -341,7 +402,12 @@ mod nk_vk_tests {
 
     #[test]
     fn parse_nk_root_key() {
-        let data = build_nk_bytes("CMI-CreateHive{2A7FB991}", KeyFlags::HIVE_ENTRY | KeyFlags::COMP_NAME, 3, 0);
+        let data = build_nk_bytes(
+            "CMI-CreateHive{2A7FB991}",
+            KeyFlags::HIVE_ENTRY | KeyFlags::COMP_NAME,
+            3,
+            0,
+        );
         let nk = RawKeyNode::parse(&data).unwrap();
         assert!(nk.is_root());
         assert_eq!(nk.key_name(), "CMI-CreateHive{2A7FB991}");
@@ -442,56 +508,80 @@ pub enum SubkeyIndex {
 
 impl SubkeyIndex {
     pub fn parse_lf(data: &[u8]) -> Option<Self> {
-        if data.len() < 2 { return None; }
+        if data.len() < 2 {
+            return None;
+        }
         let count = u16::from_le_bytes([data[0], data[1]]) as usize;
         let elements_data = &data[2..];
-        if elements_data.len() < count * 8 { return None; }
-        let elements = (0..count).map(|i| {
-            let base = i * 8;
-            LfElement {
-                key_offset: CellOffset(u32::from_le_bytes(elements_data[base..base + 4].try_into().unwrap())),
-                name_hint: elements_data[base + 4..base + 8].try_into().unwrap(),
-            }
-        }).collect();
+        if elements_data.len() < count * 8 {
+            return None;
+        }
+        let elements = (0..count)
+            .map(|i| {
+                let base = i * 8;
+                LfElement {
+                    key_offset: CellOffset(crate::bytes::le_u32(elements_data, base)),
+                    name_hint: crate::bytes::read4(elements_data, base + 4),
+                }
+            })
+            .collect();
         Some(Self::FastLeaf(elements))
     }
 
     pub fn parse_lh(data: &[u8]) -> Option<Self> {
-        if data.len() < 2 { return None; }
+        if data.len() < 2 {
+            return None;
+        }
         let count = u16::from_le_bytes([data[0], data[1]]) as usize;
         let elements_data = &data[2..];
-        if elements_data.len() < count * 8 { return None; }
-        let elements = (0..count).map(|i| {
-            let base = i * 8;
-            LhElement {
-                key_offset: CellOffset(u32::from_le_bytes(elements_data[base..base + 4].try_into().unwrap())),
-                name_hash: u32::from_le_bytes(elements_data[base + 4..base + 8].try_into().unwrap()),
-            }
-        }).collect();
+        if elements_data.len() < count * 8 {
+            return None;
+        }
+        let elements = (0..count)
+            .map(|i| {
+                let base = i * 8;
+                LhElement {
+                    key_offset: CellOffset(crate::bytes::le_u32(elements_data, base)),
+                    name_hash: crate::bytes::le_u32(elements_data, base + 4),
+                }
+            })
+            .collect();
         Some(Self::HashLeaf(elements))
     }
 
     pub fn parse_li(data: &[u8]) -> Option<Self> {
-        if data.len() < 2 { return None; }
+        if data.len() < 2 {
+            return None;
+        }
         let count = u16::from_le_bytes([data[0], data[1]]) as usize;
         let elements_data = &data[2..];
-        if elements_data.len() < count * 4 { return None; }
-        let offsets = (0..count).map(|i| {
-            let base = i * 4;
-            CellOffset(u32::from_le_bytes(elements_data[base..base + 4].try_into().unwrap()))
-        }).collect();
+        if elements_data.len() < count * 4 {
+            return None;
+        }
+        let offsets = (0..count)
+            .map(|i| {
+                let base = i * 4;
+                CellOffset(crate::bytes::le_u32(elements_data, base))
+            })
+            .collect();
         Some(Self::IndexLeaf(offsets))
     }
 
     pub fn parse_ri(data: &[u8]) -> Option<Self> {
-        if data.len() < 2 { return None; }
+        if data.len() < 2 {
+            return None;
+        }
         let count = u16::from_le_bytes([data[0], data[1]]) as usize;
         let elements_data = &data[2..];
-        if elements_data.len() < count * 4 { return None; }
-        let offsets = (0..count).map(|i| {
-            let base = i * 4;
-            CellOffset(u32::from_le_bytes(elements_data[base..base + 4].try_into().unwrap()))
-        }).collect();
+        if elements_data.len() < count * 4 {
+            return None;
+        }
+        let offsets = (0..count)
+            .map(|i| {
+                let base = i * 4;
+                CellOffset(crate::bytes::le_u32(elements_data, base))
+            })
+            .collect();
         Some(Self::RootIndex(offsets))
     }
 }
@@ -517,15 +607,25 @@ pub struct RawSecurityKey {
 
 impl RawSecurityKey {
     pub fn parse(data: &[u8]) -> Option<Self> {
-        if data.len() < 18 { return None; }
+        if data.len() < 18 {
+            return None;
+        }
         let flink = CellOffset(u32::from_le_bytes(data[2..6].try_into().ok()?));
         let blink = CellOffset(u32::from_le_bytes(data[6..10].try_into().ok()?));
         let reference_count = u32::from_le_bytes(data[10..14].try_into().ok()?);
         let descriptor_size = u32::from_le_bytes(data[14..18].try_into().ok()?);
         let desc_end = 18 + descriptor_size as usize;
-        if data.len() < desc_end { return None; }
+        if data.len() < desc_end {
+            return None;
+        }
         let descriptor = data[18..desc_end].to_vec();
-        Some(Self { flink, blink, reference_count, descriptor_size, descriptor })
+        Some(Self {
+            flink,
+            blink,
+            reference_count,
+            descriptor_size,
+            descriptor,
+        })
     }
 }
 
@@ -538,10 +638,15 @@ pub struct RawBigData {
 
 impl RawBigData {
     pub fn parse(data: &[u8]) -> Option<Self> {
-        if data.len() < 6 { return None; }
+        if data.len() < 6 {
+            return None;
+        }
         let segment_count = u16::from_le_bytes([data[0], data[1]]);
         let segment_list_offset = CellOffset(u32::from_le_bytes(data[2..6].try_into().ok()?));
-        Some(Self { segment_count, segment_list_offset })
+        Some(Self {
+            segment_count,
+            segment_list_offset,
+        })
     }
 }
 
@@ -563,7 +668,9 @@ mod index_tests {
             assert_eq!(elements[0].key_offset, CellOffset(0x100));
             assert_eq!(elements[0].name_hash, 0xABCD);
             assert_eq!(elements[1].key_offset, CellOffset(0x200));
-        } else { panic!("expected HashLeaf"); }
+        } else {
+            panic!("expected HashLeaf");
+        }
     }
 
     #[test]
@@ -577,7 +684,9 @@ mod index_tests {
         if let SubkeyIndex::IndexLeaf(offsets) = index {
             assert_eq!(offsets.len(), 3);
             assert_eq!(offsets[0], CellOffset(0x100));
-        } else { panic!("expected IndexLeaf"); }
+        } else {
+            panic!("expected IndexLeaf");
+        }
     }
 
     #[test]
@@ -616,6 +725,8 @@ mod index_tests {
         let index = SubkeyIndex::parse_lh(&data).unwrap();
         if let SubkeyIndex::HashLeaf(elements) = index {
             assert!(elements.is_empty());
-        } else { panic!("expected empty HashLeaf"); }
+        } else {
+            panic!("expected empty HashLeaf");
+        }
     }
 }

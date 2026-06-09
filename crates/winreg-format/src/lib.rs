@@ -3,6 +3,7 @@
 //! Pure type definitions with zero I/O. All structs derive `BinRead` for
 //! declarative parsing from byte streams.
 
+pub mod bytes;
 pub mod cells;
 pub mod flags;
 pub mod hbin;

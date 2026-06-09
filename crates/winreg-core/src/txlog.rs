@@ -102,7 +102,7 @@ pub fn replay_transaction_logs(hive_data: Vec<u8>, log_datas: &[Vec<u8>]) -> Res
             continue;
         }
 
-        let file_type = u32::from_le_bytes(log_data[0x1C..0x20].try_into().unwrap());
+        let file_type = crate::bytes::le_u32(log_data, 0x1C);
 
         match file_type {
             1 | 6 => {
@@ -130,10 +130,10 @@ fn parse_new_format_log(log_data: &[u8], overlay: &mut OverlayBuffer) {
                 break;
             }
 
-            let size = u32::from_le_bytes(log_data[pos + 4..pos + 8].try_into().unwrap());
+            let size = crate::bytes::le_u32(log_data, pos + 4);
             // dirty_page_count at offset +16 relative to HvLE start
             let page_count =
-                u32::from_le_bytes(log_data[pos + 16..pos + 20].try_into().unwrap()) as usize;
+                crate::bytes::le_u32(log_data, pos + 16) as usize;
 
             // Dirty page references start at offset +40
             let ref_start = pos + 40;
@@ -145,10 +145,8 @@ fn parse_new_format_log(log_data: &[u8], overlay: &mut OverlayBuffer) {
                     break;
                 }
                 let page_offset =
-                    u32::from_le_bytes(log_data[ref_offset..ref_offset + 4].try_into().unwrap());
-                let page_size = u32::from_le_bytes(
-                    log_data[ref_offset + 4..ref_offset + 8].try_into().unwrap(),
-                );
+                    crate::bytes::le_u32(log_data, ref_offset);
+                let page_size = crate::bytes::le_u32(log_data, ref_offset + 4);
 
                 // Calculate where the page data is in the log file.
                 // Pages are stored sequentially after all page references.

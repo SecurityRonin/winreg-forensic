@@ -89,7 +89,7 @@ impl Value<'_> {
         if data.len() < 8 {
             return Ok(0);
         }
-        Ok(u64::from_le_bytes(data[..8].try_into().unwrap()))
+        Ok(crate::bytes::le_u64(&data, 0))
     }
 
     /// Decode as multi-string (`REG_MULTI_SZ`).

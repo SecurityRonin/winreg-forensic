@@ -147,8 +147,8 @@ fn catalog_hbins(data: &[u8], start: u64, expected_size: u64) -> Result<Vec<Hbin
             return Err(HiveError::InvalidHbin { file_offset });
         }
 
-        let offset = u32::from_le_bytes(data[pos_usize + 4..pos_usize + 8].try_into().unwrap());
-        let size = u32::from_le_bytes(data[pos_usize + 8..pos_usize + 12].try_into().unwrap());
+        let offset = crate::bytes::le_u32(data, pos_usize + 4);
+        let size = crate::bytes::le_u32(data, pos_usize + 8);
 
         if size == 0 || size % 4096 != 0 {
             break; // Invalid size — stop
