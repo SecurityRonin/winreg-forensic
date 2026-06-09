@@ -117,7 +117,7 @@ pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<TypedUrl> {
                 for val in vals {
                     if let Ok(raw) = val.raw_data() {
                         if raw.len() >= 8 {
-                            let ft = u64::from_le_bytes(raw[..8].try_into().unwrap());
+                            let ft = winreg_core::bytes::le_u64(&raw[..], 0);
                             if let Some(dt) = filetime_to_datetime(ft) {
                                 map.insert(val.name(), dt.format("%Y-%m-%dT%H:%M:%SZ").to_string());
                             }

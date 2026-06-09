@@ -3,7 +3,7 @@
 //! Provides `Hive` for reading REGF hive files via memory-mapped I/O
 //! or in-memory buffers.
 
-pub(crate) mod bytes;
+pub mod bytes;
 pub mod cell_reader;
 pub mod detect;
 pub mod error;

@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Integration tests for `winreg_artifacts::svc_diff`.
 //!
 //! RED phase: tests are written against the public API and must FAIL until

@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Integration tests for `winreg_artifacts::registry_keys`.
 //!
 //! RED phase: all tests should FAIL until the implementation is complete.

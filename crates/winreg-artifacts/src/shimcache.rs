@@ -197,7 +197,7 @@ fn decode_entry_body(body: &[u8]) -> (String, Option<String>) {
     let path_len = u16::from_le_bytes([body[0], body[1]]) as usize;
 
     let last_modified: Option<String> = if body.len() >= 16 {
-        let ft = u64::from_le_bytes(body[8..16].try_into().unwrap());
+        let ft = winreg_core::bytes::le_u64(&body[..], 8);
         filetime_to_datetime(ft).map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())
     } else {
         None

@@ -95,10 +95,10 @@ pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<UserAssistEntry> {
                 continue;
             }
 
-            let run_count = u32::from_le_bytes(raw[4..8].try_into().unwrap());
-            let focus_count = u32::from_le_bytes(raw[8..12].try_into().unwrap());
-            let focus_duration_ms = u32::from_le_bytes(raw[12..16].try_into().unwrap());
-            let filetime = u64::from_le_bytes(raw[60..68].try_into().unwrap());
+            let run_count = winreg_core::bytes::le_u32(&raw[..], 4);
+            let focus_count = winreg_core::bytes::le_u32(&raw[..], 8);
+            let focus_duration_ms = winreg_core::bytes::le_u32(&raw[..], 12);
+            let filetime = winreg_core::bytes::le_u64(&raw[..], 60);
 
             let last_run = filetime_to_datetime(filetime)
                 .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string());
