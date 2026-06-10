@@ -39,6 +39,7 @@
 //! renders a best-effort placeholder, so callers can route to the right module.
 
 use std::io::Cursor;
+use std::path::Path;
 
 use forensicnomicon::catalog::{ArtifactDescriptor, ArtifactType, Decoder, HiveTarget, CATALOG};
 use winreg_core::detect::HiveType;
@@ -193,6 +194,49 @@ pub fn scan_users(user_hives: &[UserHive]) -> Vec<CatalogHit> {
         }
     }
     hits
+}
+
+/// Discover every per-user hive under a mounted-image root and open it into a
+/// profile-tagged [`UserHive`], ready for [`scan_users`].
+///
+/// Delegates the filesystem walk to [`winreg_discover::discover_hives`], then
+/// keeps only the `NTUSER.DAT` / `UsrClass.dat` sources, opening each and
+/// deriving the profile name from its `Users/<name>/…` path. A hive that fails
+/// to open (truncated, wrong format) is skipped rather than aborting the scan.
+///
+/// The SID is left `None` here — it is not recoverable from the profile path
+/// alone; a caller that has the SOFTWARE hive's `ProfileList` can fill it in.
+#[must_use]
+pub fn discover_user_hives(evidence_root: &Path) -> Vec<UserHive> {
+    let mut out = Vec::new();
+    for source in winreg_discover::discover_hives(evidence_root) {
+        if !matches!(source.hive_type, HiveType::NtUser | HiveType::UsrClass) {
+            continue;
+        }
+        let Ok(hive) = Hive::from_path(&source.path) else {
+            continue;
+        };
+        out.push(UserHive {
+            identity: UserIdentity {
+                profile: profile_name_from_path(&source.path),
+                sid: None,
+            },
+            hive,
+        });
+    }
+    out
+}
+
+/// Derive the profile/account name from a `…/Users/<name>/…` hive path.
+fn profile_name_from_path(path: &Path) -> Option<String> {
+    let components: Vec<String> = path
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().to_string())
+        .collect();
+    let idx = components
+        .iter()
+        .position(|c| c.eq_ignore_ascii_case("Users"))?;
+    components.get(idx + 1).cloned()
 }
 
 /// Strip a live-system per-user root prefix (`HKEY_USERS\<sid>\` or `HKU\<sid>\`)
