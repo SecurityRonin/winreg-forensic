@@ -141,3 +141,87 @@ fn scan_only_resolves_matching_hive_descriptors() {
         "NtUser-only descriptor must not be resolved against a SOFTWARE hive"
     );
 }
+
+// ── Test 6: GLOB — trailing `*` expands a key family per child ───────────────
+
+#[test]
+fn scan_expands_trailing_star_into_one_hit_per_child_key() {
+    // `fa_explorer_browser_helper_objects`: HklmSoftware, key-level descriptor
+    // `Software\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\*`
+    // (value_name: None). The trailing `*` is a *family*: every CLSID subkey
+    // under "Browser Helper Objects" is a separate BHO registration. Glob
+    // expansion must visit each child key and emit its value(s) — before glob
+    // support these descriptors were skipped, yielding zero hits.
+    let bho = r"Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects";
+    let clsid_a = format!(r"{bho}\{{AAAAAAAA-0000-0000-0000-000000000001}}");
+    let clsid_b = format!(r"{bho}\{{BBBBBBBB-0000-0000-0000-000000000002}}");
+    let data = software_root(TestHiveBuilder::new())
+        .add_key("Microsoft")
+        .add_key(bho)
+        .add_key(&clsid_a)
+        .add_key(&clsid_b)
+        .add_value(&clsid_a, "NoExplorer", REG_DWORD, &1u32.to_le_bytes())
+        .add_value(&clsid_b, "NoExplorer", REG_DWORD, &0u32.to_le_bytes())
+        .build();
+    let hive = Hive::from_bytes(data).unwrap();
+
+    let hits = scan(&hive);
+    let bho_hits: Vec<&CatalogHit> = hits
+        .iter()
+        .filter(|h| h.catalog_id == "fa_explorer_browser_helper_objects")
+        .collect();
+
+    assert_eq!(
+        bho_hits.len(),
+        2,
+        "trailing-* descriptor must expand to one hit per CLSID child key, got {bho_hits:?}"
+    );
+    // Each hit must carry the CONCRETE resolved child path, not the glob pattern.
+    assert!(
+        bho_hits.iter().any(|h| h.key_path == clsid_a),
+        "expanded hit must carry the concrete child key path"
+    );
+    assert!(
+        bho_hits.iter().any(|h| h.key_path == clsid_b),
+        "expanded hit must carry the concrete child key path"
+    );
+    // The catalog id / name / meaning are preserved from the descriptor.
+    assert!(bho_hits.iter().all(|h| !h.key_path.contains('*')));
+}
+
+// ── Test 7: GLOB — mid-segment `*` and `**` recursive descent ────────────────
+
+#[test]
+fn scan_expands_midsegment_star_and_double_star() {
+    // `velociraptor_securityproviders_wdigest`: HklmSystem,
+    // `SYSTEM\*ControlSet*\Control\SecurityProviders\WDigest\**`.
+    // After hive-prefix normalization the path is `*ControlSet*\Control\
+    // SecurityProviders\WDigest\**`. `*ControlSet*` matches `ControlSet001`
+    // (mid-segment wildcard); `**` is recursive descent — it matches the WDigest
+    // key itself and any nested subkeys. UseLogonCredential lives directly under
+    // WDigest and must surface.
+    let wdigest = r"ControlSet001\Control\SecurityProviders\WDigest";
+    let data = TestHiveBuilder::new()
+        // Make detect_hive_type classify this as SYSTEM: needs Select + ControlSet001.
+        .add_key("Select")
+        .add_key(wdigest)
+        .add_value(
+            wdigest,
+            "UseLogonCredential",
+            REG_DWORD,
+            &1u32.to_le_bytes(),
+        )
+        .build();
+    let hive = Hive::from_bytes(data).unwrap();
+
+    let hits = scan(&hive);
+    let wdigest_hit = hits
+        .iter()
+        .find(|h| {
+            h.catalog_id == "velociraptor_securityproviders_wdigest"
+                && h.value_name.as_deref() == Some("UseLogonCredential")
+        })
+        .expect("`*ControlSet*` + `**` glob must resolve WDigest\\UseLogonCredential");
+    assert_eq!(wdigest_hit.value_data, "1");
+    assert!(wdigest_hit.key_path.starts_with(r"ControlSet001\Control\SecurityProviders\WDigest"));
+}
