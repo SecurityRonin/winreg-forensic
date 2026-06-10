@@ -127,6 +127,18 @@ impl<R: ReadSeek> Hive<R> {
     }
 }
 
+impl Hive<Cursor<Vec<u8>>> {
+    /// Raw hive bytes, including the base block and every hbin.
+    ///
+    /// Exposed for carving/recovery, which must scan **unallocated** cells and
+    /// cell slack that the typed cell reader deliberately refuses to return.
+    /// Callers get read-only bytes and resolve cell offsets via
+    /// [`HbinDescriptor::file_offset`].
+    pub fn raw_bytes(&self) -> &[u8] {
+        self.reader.get_ref()
+    }
+}
+
 /// Walk the hive bins data and build a catalog of all hbins.
 fn catalog_hbins(data: &[u8], start: u64, expected_size: u64) -> Result<Vec<HbinDescriptor>> {
     let mut bins = Vec::new();
