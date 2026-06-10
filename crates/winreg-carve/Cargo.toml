@@ -6,5 +6,12 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[dependencies]
+winreg-core.workspace = true
+winreg-format.workspace = true
+
+[dev-dependencies]
+winreg-core.workspace = true
+
 [lints]
 workspace = true
