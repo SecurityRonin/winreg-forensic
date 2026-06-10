@@ -201,16 +201,12 @@ fn scan_expands_midsegment_star_and_double_star() {
     // key itself and any nested subkeys. UseLogonCredential lives directly under
     // WDigest and must surface.
     let wdigest = r"ControlSet001\Control\SecurityProviders\WDigest";
+    // The descriptor's decoder is Identity (text), so store the value as REG_SZ.
     let data = TestHiveBuilder::new()
         // Make detect_hive_type classify this as SYSTEM: needs Select + ControlSet001.
         .add_key("Select")
         .add_key(wdigest)
-        .add_value(
-            wdigest,
-            "UseLogonCredential",
-            REG_DWORD,
-            &1u32.to_le_bytes(),
-        )
+        .add_value(wdigest, "UseLogonCredential", REG_SZ, &utf16le("1"))
         .build();
     let hive = Hive::from_bytes(data).unwrap();
 
@@ -223,5 +219,7 @@ fn scan_expands_midsegment_star_and_double_star() {
         })
         .expect("`*ControlSet*` + `**` glob must resolve WDigest\\UseLogonCredential");
     assert_eq!(wdigest_hit.value_data, "1");
-    assert!(wdigest_hit.key_path.starts_with(r"ControlSet001\Control\SecurityProviders\WDigest"));
+    assert!(wdigest_hit
+        .key_path
+        .starts_with(r"ControlSet001\Control\SecurityProviders\WDigest"));
 }

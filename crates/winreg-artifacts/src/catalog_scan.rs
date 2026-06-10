@@ -43,8 +43,20 @@ use std::io::Cursor;
 use forensicnomicon::catalog::{ArtifactDescriptor, ArtifactType, Decoder, HiveTarget, CATALOG};
 use winreg_core::detect::HiveType;
 use winreg_core::hive::Hive;
-use winreg_core::key::filetime_to_datetime;
+use winreg_core::key::{filetime_to_datetime, Key};
 use winreg_core::value::{decode_multi_sz, decode_utf16le, Value};
+
+/// Maximum key-tree depth a `**` recursive-descent glob will walk.
+///
+/// Untrusted hives can be crafted with pathological nesting; this bounds the
+/// recursion so a malicious image cannot drive unbounded stack/heap growth.
+const MAX_GLOB_DEPTH: usize = 64;
+
+/// Maximum number of concrete keys a single glob descriptor may expand to.
+///
+/// Caps breadth so a hive with millions of sibling keys under a `*` cannot make
+/// one descriptor produce an unbounded result set (allocation bomb defence).
+const MAX_GLOB_MATCHES: usize = 4096;
 
 /// A single decoded artifact value surfaced by the catalog-driven scan.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -66,6 +78,22 @@ pub struct CatalogHit {
     /// `true` when the artifact needs one of the specialized binary decoders
     /// (UserAssist, Shimcache, …) rather than this generic value renderer.
     pub needs_specialized_decoder: bool,
+    /// The user this hit is attributed to, or `None` for machine-wide hives
+    /// (SYSTEM/SOFTWARE/SAM/SECURITY) scanned via [`scan`].
+    pub user: Option<UserIdentity>,
+}
+
+/// Identity of the user a per-user [`CatalogHit`] is attributed to.
+///
+/// Offline, a per-user artifact lives in one user's `NTUSER.DAT` / `UsrClass.dat`.
+/// At least one of `profile` / `sid` is populated; both may be present when the
+/// caller could resolve the SID (e.g. from `ProfileList` or the hive path).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct UserIdentity {
+    /// Profile/account name, typically the profile directory name (e.g. `"alice"`).
+    pub profile: Option<String>,
+    /// Security identifier (e.g. `"S-1-5-21-…-1001"`) when known.
+    pub sid: Option<String>,
 }
 
 /// Scan an open hive against the forensicnomicon registry catalog.
@@ -80,6 +108,9 @@ pub fn scan(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<CatalogHit> {
     };
 
     let mut hits = Vec::new();
+    let Ok(root) = hive.root_key() else {
+        return hits;
+    };
     for descriptor in CATALOG.list() {
         if !is_registry(descriptor.artifact_type) {
             continue;
@@ -87,31 +118,64 @@ pub fn scan(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<CatalogHit> {
         if descriptor.hive != Some(target) {
             continue;
         }
-        let Some(path) = normalize_key_path(descriptor.key_path) else {
-            continue;
-        };
-        let key = match hive.open_key(&path) {
-            Ok(Some(k)) => k,
-            _ => continue,
-        };
-
-        match descriptor.value_name {
-            // Single named value.
-            Some(vname) => {
-                if let Ok(Some(val)) = key.value(vname) {
-                    hits.push(make_hit(descriptor, &path, Some(vname.to_string()), &val));
-                }
-            }
-            // Key-level descriptor: every child value is a hit.
-            None => {
-                let Ok(values) = key.values() else { continue };
-                for val in values {
-                    hits.push(make_hit(descriptor, &path, Some(val.name()), &val));
-                }
-            }
-        }
+        resolve_descriptor(&root, descriptor, None, &mut hits);
     }
     hits
+}
+
+/// Resolve a single descriptor against an already-open key tree rooted at
+/// `root`, pushing every produced [`CatalogHit`] (tagged with `user`) onto
+/// `hits`. Wildcard (`*` / `**`) paths are glob-expanded; concrete paths open a
+/// single key. SID-placeholder (`%`) paths are not handled here.
+fn resolve_descriptor(
+    root: &Key<'_>,
+    descriptor: &ArtifactDescriptor,
+    user: Option<&UserIdentity>,
+    hits: &mut Vec<CatalogHit>,
+) {
+    // Wildcard family — glob-expand to concrete child keys.
+    if let Some(segments) = normalize_glob_path(descriptor.key_path) {
+        let mut matched = 0usize;
+        expand_glob(root, &segments, "", 0, &mut matched, &mut |path, key| {
+            emit_key(descriptor, path, key, user, hits);
+        });
+        return;
+    }
+    // Concrete single key.
+    let Some(path) = normalize_key_path(descriptor.key_path) else {
+        return;
+    };
+    if let Ok(Some(key)) = root.subkey_path(&path) {
+        emit_key(descriptor, &path, &key, user, hits);
+    }
+}
+
+/// Emit the descriptor's value(s) for one concrete, already-opened key.
+fn emit_key(
+    descriptor: &ArtifactDescriptor,
+    key_path: &str,
+    key: &Key<'_>,
+    user: Option<&UserIdentity>,
+    hits: &mut Vec<CatalogHit>,
+) {
+    if let Some(vname) = descriptor.value_name {
+        // Single named value.
+        if let Ok(Some(val)) = key.value(vname) {
+            hits.push(make_hit(
+                descriptor,
+                key_path,
+                Some(vname.to_string()),
+                &val,
+                user,
+            ));
+        }
+    } else {
+        // Key-level descriptor: every child value is a hit.
+        let Ok(values) = key.values() else { return };
+        for val in values {
+            hits.push(make_hit(descriptor, key_path, Some(val.name()), &val, user));
+        }
+    }
 }
 
 /// Map winreg-core's detected hive type to a forensicnomicon hive target.
@@ -143,6 +207,15 @@ fn normalize_key_path(raw: &str) -> Option<String> {
     if raw.contains('*') || raw.contains('%') || raw.contains('/') {
         return None;
     }
+    normalize_path_prefixes(raw)
+}
+
+/// Apply the hive-prefix / doubled-backslash / `CurrentControlSet` normalizations
+/// shared by the concrete and glob resolvers, returning the hive-relative path
+/// (or `None` for an unsupported placeholder root or empty result).
+///
+/// Wildcard segments are preserved verbatim — callers gate on `*`/`%` themselves.
+fn normalize_path_prefixes(raw: &str) -> Option<String> {
     // Collapse any doubled backslashes to single separators.
     let collapsed = raw.replace("\\\\", "\\");
 
@@ -202,12 +275,171 @@ fn looks_like_hive_root(path: &str) -> bool {
         .is_some_and(|seg| seg.eq_ignore_ascii_case("HKEY_USERS") || seg.starts_with("HKEY_"))
 }
 
+// ── Glob expansion ───────────────────────────────────────────────────────────
+
+/// One path component of a normalized wildcard descriptor path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum GlobSegment {
+    /// An exact key name to descend into.
+    Literal(String),
+    /// A single-level wildcard with optional literal context around the `*`
+    /// (e.g. `*` matches any child, `*ControlSet*` matches `ControlSet001`).
+    Star(String),
+    /// `**` — recursive descent: matches this key and any nested descendant.
+    DoubleStar,
+}
+
+/// Normalize a catalog key path that contains a wildcard into hive-relative
+/// [`GlobSegment`]s, or `None` if the path is not a wildcard family or carries a
+/// SID placeholder (`%`, handled by the multi-user scan instead).
+///
+/// Applies the same hive-prefix / `CurrentControlSet` normalizations as
+/// [`normalize_key_path`], but preserves `*` / `**` segments.
+fn normalize_glob_path(raw: &str) -> Option<Vec<GlobSegment>> {
+    if !raw.contains('*') || raw.contains('%') || raw.contains('/') {
+        return None;
+    }
+    let normalized = normalize_path_prefixes(raw)?;
+    let segments: Vec<GlobSegment> = normalized
+        .split('\\')
+        .filter(|s| !s.is_empty())
+        .map(parse_glob_segment)
+        .collect();
+    if segments.is_empty() {
+        None
+    } else {
+        Some(segments)
+    }
+}
+
+/// Classify one raw path component as a [`GlobSegment`].
+fn parse_glob_segment(seg: &str) -> GlobSegment {
+    // A component containing `**` is recursive descent regardless of any
+    // forensic-artifacts repeat suffix (e.g. `**5`).
+    if seg.contains("**") {
+        GlobSegment::DoubleStar
+    } else if seg.contains('*') {
+        GlobSegment::Star(seg.to_string())
+    } else {
+        GlobSegment::Literal(seg.to_string())
+    }
+}
+
+/// Recursively expand `segments` against `key`, invoking `emit` with
+/// `(concrete_path, &matched_key)` for every concrete key that matches the whole
+/// pattern.
+///
+/// `prefix` is the hive-relative path already walked to reach `key`. `depth`
+/// bounds recursion and `matched` (shared across the whole expansion) caps the
+/// total number of matches at [`MAX_GLOB_MATCHES`] — both defend against
+/// pathological untrusted hives.
+fn expand_glob(
+    key: &Key<'_>,
+    segments: &[GlobSegment],
+    prefix: &str,
+    depth: usize,
+    matched: &mut usize,
+    emit: &mut dyn FnMut(&str, &Key<'_>),
+) {
+    if *matched >= MAX_GLOB_MATCHES || depth > MAX_GLOB_DEPTH {
+        return;
+    }
+    let Some((head, rest)) = segments.split_first() else {
+        // All segments consumed — `key` is itself the concrete match.
+        *matched += 1;
+        emit(prefix, key);
+        return;
+    };
+
+    match head {
+        GlobSegment::Literal(name) => {
+            let Ok(children) = key.subkeys() else { return };
+            for child in children {
+                if child.name().eq_ignore_ascii_case(name) {
+                    let child_prefix = join_path(prefix, &child.name());
+                    expand_glob(&child, rest, &child_prefix, depth + 1, matched, emit);
+                    break;
+                }
+            }
+        }
+        GlobSegment::Star(pattern) => {
+            let Ok(children) = key.subkeys() else { return };
+            for child in children {
+                if *matched >= MAX_GLOB_MATCHES {
+                    return;
+                }
+                if segment_matches(pattern, &child.name()) {
+                    let child_prefix = join_path(prefix, &child.name());
+                    expand_glob(&child, rest, &child_prefix, depth + 1, matched, emit);
+                }
+            }
+        }
+        GlobSegment::DoubleStar => {
+            // `**` matches zero levels: try the remaining pattern against `key`.
+            expand_glob(key, rest, prefix, depth, matched, emit);
+            // …and any number of levels: descend into every child, keeping `**`.
+            let Ok(children) = key.subkeys() else { return };
+            for child in children {
+                if *matched >= MAX_GLOB_MATCHES {
+                    return;
+                }
+                let child_prefix = join_path(prefix, &child.name());
+                expand_glob(&child, segments, &child_prefix, depth + 1, matched, emit);
+            }
+        }
+    }
+}
+
+/// Join a hive-relative prefix with a child name using `\` separators.
+fn join_path(prefix: &str, name: &str) -> String {
+    if prefix.is_empty() {
+        name.to_string()
+    } else {
+        format!("{prefix}\\{name}")
+    }
+}
+
+/// Match a single path component against a glob `pattern` that may contain `*`
+/// wildcards anywhere (case-insensitive). `*` matches any run of characters.
+fn segment_matches(pattern: &str, name: &str) -> bool {
+    let pat: Vec<char> = pattern.to_ascii_lowercase().chars().collect();
+    let txt: Vec<char> = name.to_ascii_lowercase().chars().collect();
+    glob_match(&pat, &txt)
+}
+
+/// Iterative `*`-only glob matcher over char slices (no backtracking blow-up).
+fn glob_match(pat: &[char], txt: &[char]) -> bool {
+    let (mut p, mut t) = (0usize, 0usize);
+    let (mut star, mut mark) = (None, 0usize);
+    while t < txt.len() {
+        if p < pat.len() && pat[p] == '*' {
+            star = Some(p);
+            mark = t;
+            p += 1;
+        } else if p < pat.len() && pat[p] == txt[t] {
+            p += 1;
+            t += 1;
+        } else if let Some(sp) = star {
+            p = sp + 1;
+            mark += 1;
+            t = mark;
+        } else {
+            return false;
+        }
+    }
+    while p < pat.len() && pat[p] == '*' {
+        p += 1;
+    }
+    p == pat.len()
+}
+
 /// Build a [`CatalogHit`], rendering the value per the descriptor's decoder.
 fn make_hit(
     descriptor: &ArtifactDescriptor,
     key_path: &str,
     value_name: Option<String>,
     val: &Value<'_>,
+    user: Option<&UserIdentity>,
 ) -> CatalogHit {
     let (value_data, specialized) = render_value(descriptor.decoder, val);
     CatalogHit {
@@ -219,6 +451,7 @@ fn make_hit(
         value_data,
         mitre_techniques: descriptor.mitre_techniques,
         needs_specialized_decoder: specialized,
+        user: user.cloned(),
     }
 }
 
