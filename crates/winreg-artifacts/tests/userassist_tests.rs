@@ -18,14 +18,17 @@ const GUID_LNK: &str = "{F4E57C4B-2036-45F0-A9AB-443BCFE33D9F}";
 // ── Helper: build path to a UserAssist Count key ──────────────────────────────
 
 fn count_path(guid: &str) -> String {
-    format!(
-        "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\UserAssist\\{guid}\\Count"
-    )
+    format!("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\UserAssist\\{guid}\\Count")
 }
 
 // ── Helper: build a 72-byte UserAssist value binary payload ──────────────────
 
-fn ua_payload(run_count: u32, focus_count: u32, focus_duration_ms: u32, last_run_ft: u64) -> Vec<u8> {
+fn ua_payload(
+    run_count: u32,
+    focus_count: u32,
+    focus_duration_ms: u32,
+    last_run_ft: u64,
+) -> Vec<u8> {
     let mut data = vec![0u8; 72];
     // bytes 0-3: session ID (we'll leave as 0)
     data[0..4].copy_from_slice(&0u32.to_le_bytes());
@@ -93,7 +96,10 @@ fn rot13_roundtrip() {
     let original = "C:\\Users\\Alice\\AppData\\Roaming\\notepad.exe";
     let encoded = rot13_decode(original); // rot13 once
     let decoded = rot13_decode(&encoded); // rot13 twice = original
-    assert_eq!(decoded, original, "applying ROT13 twice should return original");
+    assert_eq!(
+        decoded, original,
+        "applying ROT13 twice should return original"
+    );
 }
 
 // ── Test 5: parse_userassist_entry_decoded ────────────────────────────────────
@@ -133,7 +139,10 @@ fn parse_run_count_extracted() {
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].run_count, 7, "run_count should be 7");
     assert_eq!(entries[0].focus_count, 3, "focus_count should be 3");
-    assert_eq!(entries[0].focus_duration_ms, 500, "focus_duration_ms should be 500");
+    assert_eq!(
+        entries[0].focus_duration_ms, 500,
+        "focus_duration_ms should be 500"
+    );
 }
 
 // ── Test 7: parse_last_run_filetime_converted ─────────────────────────────────

@@ -58,7 +58,12 @@ fn parse_single_entry_returns_entry() {
     let subkey = format!("{IAF_PATH}\\abc123");
     let data = TestHiveBuilder::new()
         .add_key(&subkey)
-        .add_value(&subkey, "LowerCaseLongPath", REG_SZ, &utf16le("C:\\windows\\system32\\foo.exe"))
+        .add_value(
+            &subkey,
+            "LowerCaseLongPath",
+            REG_SZ,
+            &utf16le("C:\\windows\\system32\\foo.exe"),
+        )
         .add_value(&subkey, "FileId", REG_SZ, &utf16le("00001234567890abcdef"))
         .add_value(&subkey, "Size", REG_DWORD, &dword(12345))
         .build();
@@ -77,7 +82,12 @@ fn parse_file_path_extracted() {
     let expected_path = "C:\\windows\\system32\\notepad.exe";
     let data = TestHiveBuilder::new()
         .add_key(&subkey)
-        .add_value(&subkey, "LowerCaseLongPath", REG_SZ, &utf16le(expected_path))
+        .add_value(
+            &subkey,
+            "LowerCaseLongPath",
+            REG_SZ,
+            &utf16le(expected_path),
+        )
         .build();
     let hive = Hive::from_bytes(data).unwrap();
     let entries = parse(&hive);
@@ -118,7 +128,12 @@ fn parse_sha1_absent_gives_empty() {
     let subkey = format!("{IAF_PATH}\\nosha1");
     let data = TestHiveBuilder::new()
         .add_key(&subkey)
-        .add_value(&subkey, "LowerCaseLongPath", REG_SZ, &utf16le("C:\\foo.exe"))
+        .add_value(
+            &subkey,
+            "LowerCaseLongPath",
+            REG_SZ,
+            &utf16le("C:\\foo.exe"),
+        )
         .build();
     let hive = Hive::from_bytes(data).unwrap();
     let entries = parse(&hive);
@@ -155,7 +170,12 @@ fn parse_publisher_extracted() {
     let subkey = format!("{IAF_PATH}\\pubtest");
     let data = TestHiveBuilder::new()
         .add_key(&subkey)
-        .add_value(&subkey, "Publisher", REG_SZ, &utf16le("Microsoft Corporation"))
+        .add_value(
+            &subkey,
+            "Publisher",
+            REG_SZ,
+            &utf16le("Microsoft Corporation"),
+        )
         .build();
     let hive = Hive::from_bytes(data).unwrap();
     let entries = parse(&hive);
@@ -184,8 +204,14 @@ fn parse_missing_values_default_to_empty() {
     assert_eq!(e.size, 0, "size should be 0");
     assert!(e.publisher.is_empty(), "publisher should be empty");
     assert!(e.product_name.is_empty(), "product_name should be empty");
-    assert!(e.product_version.is_empty(), "product_version should be empty");
-    assert!(e.bin_file_version.is_empty(), "bin_file_version should be empty");
+    assert!(
+        e.product_version.is_empty(),
+        "product_version should be empty"
+    );
+    assert!(
+        e.bin_file_version.is_empty(),
+        "bin_file_version should be empty"
+    );
 }
 
 // ---------------------------------------------------------------------------

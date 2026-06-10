@@ -29,9 +29,13 @@
 //!   / `SYSTEM\` that merely repeats the hive name) is stripped — catalog paths
 //!   are nominally hive-relative, but some entries repeat the hive.
 //! - `CurrentControlSet` (the SYSTEM-hive symlink the live registry resolves) is
-//!   rewritten to `ControlSet001`, which is what an offline SYSTEM hive actually
-//!   stores. This is the common case; a hive booted from a different control set
-//!   is not consulted here.
+//!   expanded by the [`crate::path_expansion`] engine to whichever
+//!   `ControlSet00N` the hive's `Select\Current` names — not assumed to be 001.
+//!
+//! Glob (`*`/`**`), control-set, and multi-user resolution all route through the
+//! single [`crate::path_expansion::expand`] engine: each is a template with one
+//! or more variable segments ranging over a domain, expanded to concrete paths
+//! tagged with [`crate::path_expansion::Binding`]s for provenance.
 //!
 //! Complex binary artifacts (UserAssist, Shimcache/AppCompatCache, Amcache,
 //! ShellBags, SAM) keep their dedicated decoders in the sibling modules; this
@@ -47,17 +51,9 @@ use winreg_core::hive::Hive;
 use winreg_core::key::{filetime_to_datetime, Key};
 use winreg_core::value::{decode_multi_sz, decode_utf16le, Value};
 
-/// Maximum key-tree depth a `**` recursive-descent glob will walk.
-///
-/// Untrusted hives can be crafted with pathological nesting; this bounds the
-/// recursion so a malicious image cannot drive unbounded stack/heap growth.
-const MAX_GLOB_DEPTH: usize = 64;
-
-/// Maximum number of concrete keys a single glob descriptor may expand to.
-///
-/// Caps breadth so a hive with millions of sibling keys under a `*` cannot make
-/// one descriptor produce an unbounded result set (allocation bomb defence).
-const MAX_GLOB_MATCHES: usize = 4096;
+use crate::path_expansion::{
+    expand, resolve_control_sets, Binding, ControlSetResolver, Segment, Wildcard,
+};
 
 /// A single decoded artifact value surfaced by the catalog-driven scan.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -81,7 +77,13 @@ pub struct CatalogHit {
     pub needs_specialized_decoder: bool,
     /// The user this hit is attributed to, or `None` for machine-wide hives
     /// (SYSTEM/SOFTWARE/SAM/SECURITY) scanned via [`scan`].
+    ///
+    /// Derived from this hit's [`Wildcard::User`] binding (when present); kept as
+    /// a distinct field so existing callers continue to work unchanged.
     pub user: Option<UserIdentity>,
+    /// Every variable resolution that produced this hit, for provenance — the
+    /// expanded subkey name(s), the active `ControlSet00N`, and/or the user.
+    pub bindings: Vec<Binding>,
 }
 
 /// Identity of the user a per-user [`CatalogHit`] is attributed to.
@@ -115,6 +117,9 @@ pub fn scan(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<CatalogHit> {
     // HKLM SOFTWARE/SYSTEM paths sometimes repeat the hive name as a leading
     // `SOFTWARE\`/`SYSTEM\`; that redundancy is stripped only for those hives.
     let strip_hive_root = matches!(target, HiveTarget::HklmSoftware | HiveTarget::HklmSystem);
+    // The `CurrentControlSet` alias resolves to whichever set `Select\Current`
+    // names — only meaningful for the SYSTEM hive.
+    let control_sets = (target == HiveTarget::HklmSystem).then(|| resolve_control_sets(&root));
     for descriptor in CATALOG.list() {
         if !is_registry(descriptor.artifact_type) {
             continue;
@@ -127,7 +132,8 @@ pub fn scan(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<CatalogHit> {
             descriptor,
             descriptor.key_path,
             strip_hive_root,
-            None,
+            control_sets.as_ref(),
+            &[],
             &mut hits,
         );
     }
@@ -167,6 +173,9 @@ pub fn scan_users(user_hives: &[UserHive]) -> Vec<CatalogHit> {
         let Ok(root) = uh.hive.root_key() else {
             continue;
         };
+        // The `User` domain binding: this hive *is* the user, so every hit it
+        // produces is tagged with the SID (preferred) or profile name.
+        let user_binding = user_binding_for(&uh.identity);
         for descriptor in CATALOG.list() {
             if !is_registry(descriptor.artifact_type) {
                 continue;
@@ -187,13 +196,31 @@ pub fn scan_users(user_hives: &[UserHive]) -> Vec<CatalogHit> {
                     descriptor,
                     path,
                     false,
-                    Some(&uh.identity),
+                    None,
+                    user_binding.as_slice(),
                     &mut hits,
                 );
             }
         }
+        // Backfill the legacy `user` field on this user's hits (the engine only
+        // carries it as a binding).
+        for hit in &mut hits {
+            if hit.user.is_none() && hit.bindings.iter().any(|b| b.kind == Wildcard::User) {
+                hit.user = Some(uh.identity.clone());
+            }
+        }
     }
     hits
+}
+
+/// The `User`-domain binding for an identity: the SID when known, else the
+/// profile name. Empty (no binding) only if the identity carries neither.
+fn user_binding_for(identity: &UserIdentity) -> Vec<Binding> {
+    let value = identity.sid.clone().or_else(|| identity.profile.clone());
+    match value {
+        Some(v) => vec![Binding::new(Wildcard::User, v)],
+        None => Vec::new(),
+    }
 }
 
 /// Discover every per-user hive under a mounted-image root and open it into a
@@ -258,37 +285,34 @@ fn strip_user_placeholder_prefix(raw: &str) -> Option<&str> {
 }
 
 /// Resolve a single descriptor against an already-open key tree rooted at
-/// `root`, using `raw_path` as the (possibly wildcard, placeholder-free) key
-/// path and pushing every produced [`CatalogHit`] (tagged with `user`) onto
-/// `hits`. Wildcard (`*` / `**`) paths are glob-expanded; concrete paths open a
-/// single key.
+/// `root`, routing it through the unified [`expand`] engine and pushing every
+/// produced [`CatalogHit`] onto `hits`.
 ///
-/// `raw_path` is taken explicitly rather than read from `descriptor.key_path`
-/// so the multi-user scan can feed a SID-placeholder-stripped, hive-relative
-/// path while still attributing the hit to the original descriptor.
+/// `raw_path` is taken explicitly rather than read from `descriptor.key_path` so
+/// the multi-user scan can feed a SID-placeholder-stripped, hive-relative path
+/// while still attributing the hit to the original descriptor.
+///
+/// `control_sets` supplies the active `ControlSet00N` for any `CurrentControlSet`
+/// segment (SYSTEM hive only); `prefix_bindings` carries cross-file bindings the
+/// engine cannot derive itself — currently the per-user [`Wildcard::User`]
+/// binding from the multi-user scan.
 fn resolve_descriptor(
     root: &Key<'_>,
     descriptor: &ArtifactDescriptor,
     raw_path: &str,
     strip_hive_root: bool,
-    user: Option<&UserIdentity>,
+    control_sets: Option<&ControlSetResolver>,
+    prefix_bindings: &[Binding],
     hits: &mut Vec<CatalogHit>,
 ) {
-    // Wildcard family — glob-expand to concrete child keys.
-    if let Some(segments) = normalize_glob_path(raw_path, strip_hive_root) {
-        let mut matched = 0usize;
-        expand_glob(root, &segments, "", 0, &mut matched, &mut |path, key| {
-            emit_key(descriptor, path, key, user, hits);
-        });
-        return;
-    }
-    // Concrete single key.
-    let Some(path) = normalize_concrete_path(raw_path, strip_hive_root) else {
+    let Some(segments) = template_segments(raw_path, strip_hive_root) else {
         return;
     };
-    if let Ok(Some(key)) = root.subkey_path(&path) {
-        emit_key(descriptor, &path, &key, user, hits);
-    }
+    expand(root, &segments, control_sets, &mut |bindings, path, key| {
+        let mut all: Vec<Binding> = prefix_bindings.to_vec();
+        all.extend_from_slice(bindings);
+        emit_key(descriptor, path, key, &all, hits);
+    });
 }
 
 /// Emit the descriptor's value(s) for one concrete, already-opened key.
@@ -296,7 +320,7 @@ fn emit_key(
     descriptor: &ArtifactDescriptor,
     key_path: &str,
     key: &Key<'_>,
-    user: Option<&UserIdentity>,
+    bindings: &[Binding],
     hits: &mut Vec<CatalogHit>,
 ) {
     if let Some(vname) = descriptor.value_name {
@@ -307,14 +331,20 @@ fn emit_key(
                 key_path,
                 Some(vname.to_string()),
                 &val,
-                user,
+                bindings,
             ));
         }
     } else {
         // Key-level descriptor: every child value is a hit.
         let Ok(values) = key.values() else { return };
         for val in values {
-            hits.push(make_hit(descriptor, key_path, Some(val.name()), &val, user));
+            hits.push(make_hit(
+                descriptor,
+                key_path,
+                Some(val.name()),
+                &val,
+                bindings,
+            ));
         }
     }
 }
@@ -337,30 +367,59 @@ fn is_registry(at: ArtifactType) -> bool {
     matches!(at, ArtifactType::RegistryKey | ArtifactType::RegistryValue)
 }
 
-/// Normalize a catalog key path into an offline-hive-relative path, or `None`
-/// if the path cannot be resolved against a single key (wildcard / placeholder).
+/// Normalize a catalog key path into hive-relative expansion [`Segment`]s, or
+/// `None` if the path carries a live-system variable placeholder (`%`) or an
+/// unsupported separator/root the offline resolver cannot map.
+///
+/// This is the single entry the unified engine consumes: concrete paths become
+/// all-`Literal` templates (expanded to a single key), `*`/`**` segments become
+/// [`Wildcard::Subkey`] variables, and a leading `CurrentControlSet` becomes a
+/// [`Wildcard::ControlSet`] variable resolved via `Select\Current`.
 ///
 /// The catalog stores backslash separators; some forensic-artifacts-sourced
 /// entries carry doubled backslashes (`\\`) as ordinary string contents — those
-/// are collapsed here.
-fn normalize_concrete_path(raw: &str, strip_hive_root: bool) -> Option<String> {
-    // Reject wildcard families and live-system variable placeholders outright.
-    if raw.contains('*') || raw.contains('%') || raw.contains('/') {
+/// are collapsed in [`normalize_path_prefixes`].
+fn template_segments(raw: &str, strip_hive_root: bool) -> Option<Vec<Segment>> {
+    // Live-system SID placeholders (`%`) and POSIX separators are out of scope.
+    if raw.contains('%') || raw.contains('/') {
         return None;
     }
-    normalize_path_prefixes(raw, strip_hive_root)
+    let normalized = normalize_path_prefixes(raw, strip_hive_root)?;
+    let segments: Vec<Segment> = normalized
+        .split('\\')
+        .filter(|s| !s.is_empty())
+        .map(parse_segment)
+        .collect();
+    if segments.is_empty() {
+        None
+    } else {
+        Some(segments)
+    }
 }
 
-/// Apply the hive-prefix / doubled-backslash / `CurrentControlSet` normalizations
-/// shared by the concrete and glob resolvers, returning the hive-relative path
-/// (or `None` for an unsupported placeholder root or empty result).
+/// Classify one raw path component into an expansion [`Segment`].
+fn parse_segment(seg: &str) -> Segment {
+    if seg.eq_ignore_ascii_case("CurrentControlSet") {
+        // The SYSTEM-hive symlink — a variable over the active `ControlSet00N`.
+        Segment::Variable(Wildcard::ControlSet, seg.to_string())
+    } else if seg.contains('*') {
+        // `*` / `**` (incl. forensic-artifacts repeat suffixes like `**5`) — a
+        // variable over the subkeys of the current node.
+        Segment::Variable(Wildcard::Subkey, seg.to_string())
+    } else {
+        Segment::Literal(seg.to_string())
+    }
+}
+
+/// Apply the hive-prefix / doubled-backslash normalizations shared by every
+/// template, returning the hive-relative path string (or `None` for an
+/// unsupported placeholder root or empty result). Wildcard and
+/// `CurrentControlSet` segments are preserved verbatim for [`parse_segment`].
 ///
 /// `strip_hive_root` controls whether a leading `SOFTWARE\` / `SYSTEM\` (which
 /// merely repeats an HKLM hive name) is dropped. It must be `true` for HKLM
 /// SOFTWARE/SYSTEM hives but `false` for per-user (`NtUser`/`UsrClass`) hives,
 /// where `Software` is a genuine first-level subkey, not a redundant prefix.
-///
-/// Wildcard segments are preserved verbatim — callers gate on `*`/`%` themselves.
 fn normalize_path_prefixes(raw: &str, strip_hive_root: bool) -> Option<String> {
     // Collapse any doubled backslashes to single separators.
     let collapsed = raw.replace("\\\\", "\\");
@@ -393,17 +452,10 @@ fn normalize_path_prefixes(raw: &str, strip_hive_root: bool) -> Option<String> {
         }
     }
 
-    // Translate the SYSTEM-hive CurrentControlSet symlink to its stored form.
-    let resolved = if let Some(rest) = strip_prefix_ci(path, "CurrentControlSet") {
-        format!("ControlSet001{rest}")
-    } else {
-        path.to_string()
-    };
-
-    if resolved.is_empty() {
+    if path.is_empty() {
         None
     } else {
-        Some(resolved)
+        Some(path.to_string())
     }
 }
 
@@ -424,171 +476,13 @@ fn looks_like_hive_root(path: &str) -> bool {
         .is_some_and(|seg| seg.eq_ignore_ascii_case("HKEY_USERS") || seg.starts_with("HKEY_"))
 }
 
-// ── Glob expansion ───────────────────────────────────────────────────────────
-
-/// One path component of a normalized wildcard descriptor path.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum GlobSegment {
-    /// An exact key name to descend into.
-    Literal(String),
-    /// A single-level wildcard with optional literal context around the `*`
-    /// (e.g. `*` matches any child, `*ControlSet*` matches `ControlSet001`).
-    Star(String),
-    /// `**` — recursive descent: matches this key and any nested descendant.
-    DoubleStar,
-}
-
-/// Normalize a catalog key path that contains a wildcard into hive-relative
-/// [`GlobSegment`]s, or `None` if the path is not a wildcard family or carries a
-/// SID placeholder (`%`, handled by the multi-user scan instead).
-///
-/// Applies the same hive-prefix / `CurrentControlSet` normalizations as
-/// [`normalize_key_path`], but preserves `*` / `**` segments.
-fn normalize_glob_path(raw: &str, strip_hive_root: bool) -> Option<Vec<GlobSegment>> {
-    if !raw.contains('*') || raw.contains('%') || raw.contains('/') {
-        return None;
-    }
-    let normalized = normalize_path_prefixes(raw, strip_hive_root)?;
-    let segments: Vec<GlobSegment> = normalized
-        .split('\\')
-        .filter(|s| !s.is_empty())
-        .map(parse_glob_segment)
-        .collect();
-    if segments.is_empty() {
-        None
-    } else {
-        Some(segments)
-    }
-}
-
-/// Classify one raw path component as a [`GlobSegment`].
-fn parse_glob_segment(seg: &str) -> GlobSegment {
-    // A component containing `**` is recursive descent regardless of any
-    // forensic-artifacts repeat suffix (e.g. `**5`).
-    if seg.contains("**") {
-        GlobSegment::DoubleStar
-    } else if seg.contains('*') {
-        GlobSegment::Star(seg.to_string())
-    } else {
-        GlobSegment::Literal(seg.to_string())
-    }
-}
-
-/// Recursively expand `segments` against `key`, invoking `emit` with
-/// `(concrete_path, &matched_key)` for every concrete key that matches the whole
-/// pattern.
-///
-/// `prefix` is the hive-relative path already walked to reach `key`. `depth`
-/// bounds recursion and `matched` (shared across the whole expansion) caps the
-/// total number of matches at [`MAX_GLOB_MATCHES`] — both defend against
-/// pathological untrusted hives.
-fn expand_glob(
-    key: &Key<'_>,
-    segments: &[GlobSegment],
-    prefix: &str,
-    depth: usize,
-    matched: &mut usize,
-    emit: &mut dyn FnMut(&str, &Key<'_>),
-) {
-    if *matched >= MAX_GLOB_MATCHES || depth > MAX_GLOB_DEPTH {
-        return;
-    }
-    let Some((head, rest)) = segments.split_first() else {
-        // All segments consumed — `key` is itself the concrete match.
-        *matched += 1;
-        emit(prefix, key);
-        return;
-    };
-
-    match head {
-        GlobSegment::Literal(name) => {
-            let Ok(children) = key.subkeys() else { return };
-            for child in children {
-                if child.name().eq_ignore_ascii_case(name) {
-                    let child_prefix = join_path(prefix, &child.name());
-                    expand_glob(&child, rest, &child_prefix, depth + 1, matched, emit);
-                    break;
-                }
-            }
-        }
-        GlobSegment::Star(pattern) => {
-            let Ok(children) = key.subkeys() else { return };
-            for child in children {
-                if *matched >= MAX_GLOB_MATCHES {
-                    return;
-                }
-                if segment_matches(pattern, &child.name()) {
-                    let child_prefix = join_path(prefix, &child.name());
-                    expand_glob(&child, rest, &child_prefix, depth + 1, matched, emit);
-                }
-            }
-        }
-        GlobSegment::DoubleStar => {
-            // `**` matches zero levels: try the remaining pattern against `key`.
-            expand_glob(key, rest, prefix, depth, matched, emit);
-            // …and any number of levels: descend into every child, keeping `**`.
-            let Ok(children) = key.subkeys() else { return };
-            for child in children {
-                if *matched >= MAX_GLOB_MATCHES {
-                    return;
-                }
-                let child_prefix = join_path(prefix, &child.name());
-                expand_glob(&child, segments, &child_prefix, depth + 1, matched, emit);
-            }
-        }
-    }
-}
-
-/// Join a hive-relative prefix with a child name using `\` separators.
-fn join_path(prefix: &str, name: &str) -> String {
-    if prefix.is_empty() {
-        name.to_string()
-    } else {
-        format!("{prefix}\\{name}")
-    }
-}
-
-/// Match a single path component against a glob `pattern` that may contain `*`
-/// wildcards anywhere (case-insensitive). `*` matches any run of characters.
-fn segment_matches(pattern: &str, name: &str) -> bool {
-    let pat: Vec<char> = pattern.to_ascii_lowercase().chars().collect();
-    let txt: Vec<char> = name.to_ascii_lowercase().chars().collect();
-    glob_match(&pat, &txt)
-}
-
-/// Iterative `*`-only glob matcher over char slices (no backtracking blow-up).
-fn glob_match(pat: &[char], txt: &[char]) -> bool {
-    let (mut p, mut t) = (0usize, 0usize);
-    let (mut star, mut mark) = (None, 0usize);
-    while t < txt.len() {
-        if p < pat.len() && pat[p] == '*' {
-            star = Some(p);
-            mark = t;
-            p += 1;
-        } else if p < pat.len() && pat[p] == txt[t] {
-            p += 1;
-            t += 1;
-        } else if let Some(sp) = star {
-            p = sp + 1;
-            mark += 1;
-            t = mark;
-        } else {
-            return false;
-        }
-    }
-    while p < pat.len() && pat[p] == '*' {
-        p += 1;
-    }
-    p == pat.len()
-}
-
 /// Build a [`CatalogHit`], rendering the value per the descriptor's decoder.
 fn make_hit(
     descriptor: &ArtifactDescriptor,
     key_path: &str,
     value_name: Option<String>,
     val: &Value<'_>,
-    user: Option<&UserIdentity>,
+    bindings: &[Binding],
 ) -> CatalogHit {
     let (value_data, specialized) = render_value(descriptor.decoder, val);
     CatalogHit {
@@ -600,7 +494,10 @@ fn make_hit(
         value_data,
         mitre_techniques: descriptor.mitre_techniques,
         needs_specialized_decoder: specialized,
-        user: user.cloned(),
+        // The multi-user scan backfills this from the matching `User` binding;
+        // machine scans leave it `None`.
+        user: None,
+        bindings: bindings.to_vec(),
     }
 }
 
@@ -644,89 +541,101 @@ fn render_value(decoder: Decoder, val: &Value<'_>) -> (String, bool) {
 mod tests {
     use super::*;
 
-    #[test]
-    fn normalize_strips_redundant_software_prefix() {
-        assert_eq!(
-            normalize_concrete_path(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion", true)
-                .as_deref(),
-            Some(r"Microsoft\Windows NT\CurrentVersion")
-        );
+    fn literals(segs: &[Segment]) -> Vec<&str> {
+        segs.iter()
+            .map(|s| match s {
+                Segment::Literal(n) => n.as_str(),
+                Segment::Variable(_, p) => p.as_str(),
+            })
+            .collect()
     }
 
     #[test]
-    fn normalize_keeps_software_for_user_hive() {
+    fn template_strips_redundant_software_prefix() {
+        let segs =
+            template_segments(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion", true).unwrap();
+        assert_eq!(
+            literals(&segs),
+            vec!["Microsoft", "Windows NT", "CurrentVersion"]
+        );
+        assert!(segs.iter().all(|s| matches!(s, Segment::Literal(_))));
+    }
+
+    #[test]
+    fn template_keeps_software_for_user_hive() {
         // Per-user hives store `Software\…` literally — it must NOT be stripped.
+        let segs =
+            template_segments(r"Software\Microsoft\Windows\CurrentVersion\Run", false).unwrap();
         assert_eq!(
-            normalize_concrete_path(r"Software\Microsoft\Windows\CurrentVersion\Run", false)
-                .as_deref(),
-            Some(r"Software\Microsoft\Windows\CurrentVersion\Run")
+            literals(&segs),
+            vec!["Software", "Microsoft", "Windows", "CurrentVersion", "Run"]
         );
     }
 
     #[test]
-    fn normalize_translates_current_control_set() {
-        assert_eq!(
-            normalize_concrete_path(r"CurrentControlSet\Services", true).as_deref(),
-            Some(r"ControlSet001\Services")
-        );
-    }
-
-    #[test]
-    fn normalize_rejects_wildcard_and_placeholder() {
-        assert!(normalize_concrete_path(r"Software\Foo\*", true).is_none());
-        assert!(normalize_concrete_path(r"HKEY_USERS\%%users.sid%%\Software\X", true).is_none());
-    }
-
-    #[test]
-    fn normalize_collapses_doubled_backslashes() {
-        assert_eq!(
-            normalize_concrete_path(r"Microsoft\\Windows\\CurrentVersion\\Run", true).as_deref(),
-            Some(r"Microsoft\Windows\CurrentVersion\Run")
-        );
-    }
-
-    #[test]
-    fn normalize_strips_hk_prefix() {
-        assert_eq!(
-            normalize_concrete_path(r"HKLM\Microsoft\Foo", true).as_deref(),
-            Some(r"Microsoft\Foo")
-        );
-    }
-
-    #[test]
-    fn glob_path_parses_segments() {
-        let segs = normalize_glob_path(r"Microsoft\Foo\*\Bar\**", true).unwrap();
+    fn template_current_control_set_is_a_variable_segment() {
+        // The hardcoded ControlSet001 rewrite is gone: CurrentControlSet is now a
+        // ControlSet-domain variable, resolved at walk time via Select\Current.
+        let segs = template_segments(r"CurrentControlSet\Services", true).unwrap();
         assert_eq!(
             segs,
             vec![
-                GlobSegment::Literal("Microsoft".into()),
-                GlobSegment::Literal("Foo".into()),
-                GlobSegment::Star("*".into()),
-                GlobSegment::Literal("Bar".into()),
-                GlobSegment::DoubleStar,
+                Segment::Variable(Wildcard::ControlSet, "CurrentControlSet".into()),
+                Segment::Literal("Services".into()),
             ]
         );
     }
 
     #[test]
-    fn glob_path_rejects_non_wildcard_and_placeholder() {
-        assert!(normalize_glob_path(r"Microsoft\Foo", true).is_none());
-        assert!(normalize_glob_path(r"Foo\%%users.sid%%\*", true).is_none());
+    fn template_rejects_placeholder() {
+        assert!(template_segments(r"HKEY_USERS\%%users.sid%%\Software\X", true).is_none());
     }
 
     #[test]
-    fn double_star_suffix_is_recursive_descent() {
-        assert_eq!(parse_glob_segment("**5"), GlobSegment::DoubleStar);
-        assert_eq!(parse_glob_segment("**"), GlobSegment::DoubleStar);
+    fn template_collapses_doubled_backslashes() {
+        let segs = template_segments(r"Microsoft\\Windows\\CurrentVersion\\Run", true).unwrap();
+        assert_eq!(
+            literals(&segs),
+            vec!["Microsoft", "Windows", "CurrentVersion", "Run"]
+        );
     }
 
     #[test]
-    fn segment_match_handles_midsegment_wildcard() {
-        assert!(segment_matches("*ControlSet*", "ControlSet001"));
-        assert!(segment_matches("*", "anything"));
-        assert!(segment_matches("ABC*", "abcdef"));
-        assert!(!segment_matches("ABC*", "xyz"));
-        assert!(!segment_matches("Foo", "Bar"));
+    fn template_strips_hk_prefix() {
+        let segs = template_segments(r"HKLM\Microsoft\Foo", true).unwrap();
+        assert_eq!(literals(&segs), vec!["Microsoft", "Foo"]);
+    }
+
+    #[test]
+    fn template_parses_wildcard_segments() {
+        let segs = template_segments(r"Microsoft\Foo\*\Bar\**", true).unwrap();
+        assert_eq!(
+            segs,
+            vec![
+                Segment::Literal("Microsoft".into()),
+                Segment::Literal("Foo".into()),
+                Segment::Variable(Wildcard::Subkey, "*".into()),
+                Segment::Literal("Bar".into()),
+                Segment::Variable(Wildcard::Subkey, "**".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn template_rejects_placeholder_in_wildcard_path() {
+        assert!(template_segments(r"Foo\%%users.sid%%\*", true).is_none());
+    }
+
+    #[test]
+    fn parse_segment_classifies_double_star_and_control_set() {
+        assert_eq!(
+            parse_segment("**5"),
+            Segment::Variable(Wildcard::Subkey, "**5".into())
+        );
+        assert_eq!(
+            parse_segment("currentcontrolset"),
+            Segment::Variable(Wildcard::ControlSet, "currentcontrolset".into())
+        );
     }
 
     #[test]

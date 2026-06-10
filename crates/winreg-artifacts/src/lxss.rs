@@ -75,7 +75,10 @@ fn is_guid(name: &str) -> bool {
 }
 
 fn str_val(key: &winreg_core::key::Key<'_>, name: &str) -> Option<String> {
-    key.value(name).ok().flatten().and_then(|v| v.as_string().ok())
+    key.value(name)
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_string().ok())
 }
 
 fn u32_val(key: &winreg_core::key::Key<'_>, name: &str) -> Option<u32> {

@@ -56,10 +56,7 @@ pub fn classify_com_hijack(hkcr_server: &str, hkcu_server: &str) -> (bool, Optio
         return (true, Some("DLL in \\programdata\\".to_string()));
     }
     if !hkcr_server.is_empty() && !hkcu_server.eq_ignore_ascii_case(hkcr_server) {
-        return (
-            true,
-            Some(format!("HKCU overrides HKCR ({hkcr_server})")),
-        );
+        return (true, Some(format!("HKCU overrides HKCR ({hkcr_server})")));
     }
     (false, None)
 }

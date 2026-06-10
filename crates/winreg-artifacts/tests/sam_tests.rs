@@ -58,11 +58,7 @@ const FILETIME_2024: u64 = 133_485_408_000_000_000;
 /// Build a SAM hive with one user.
 ///
 /// `rid_hex` should be an 8-digit uppercase hex string, e.g. `"000001F4"` for RID 500.
-fn build_sam_hive_one_user(
-    username: &str,
-    rid_hex: &str,
-    f_record: &[u8],
-) -> Vec<u8> {
+fn build_sam_hive_one_user(username: &str, rid_hex: &str, f_record: &[u8]) -> Vec<u8> {
     let names_path = format!("SAM\\Domains\\Account\\Users\\Names\\{username}");
     let rid_path = format!("SAM\\Domains\\Account\\Users\\{rid_hex}");
 
@@ -154,7 +150,10 @@ fn parse_disabled_flag_detected() {
     let hive = Hive::from_bytes(data).unwrap();
     let results = parse(&hive);
     assert_eq!(results.len(), 1);
-    assert!(results[0].is_disabled, "is_disabled should be true when flag 0x0001 is set");
+    assert!(
+        results[0].is_disabled,
+        "is_disabled should be true when flag 0x0001 is set"
+    );
     assert_eq!(results[0].account_flags & 0x0001, 0x0001);
 }
 
@@ -169,7 +168,10 @@ fn parse_login_count_extracted() {
     let hive = Hive::from_bytes(data).unwrap();
     let results = parse(&hive);
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].login_count, 42, "login_count should be extracted from F record bytes 66-67");
+    assert_eq!(
+        results[0].login_count, 42,
+        "login_count should be extracted from F record bytes 66-67"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -224,9 +226,18 @@ fn parse_short_f_record_returns_defaults() {
     let results = parse(&hive);
     assert_eq!(results.len(), 1);
     let entry = &results[0];
-    assert!(entry.last_login.is_none(), "short F record: last_login should be None");
-    assert_eq!(entry.login_count, 0, "short F record: login_count should default to 0");
-    assert_eq!(entry.account_flags, 0, "short F record: account_flags should default to 0");
+    assert!(
+        entry.last_login.is_none(),
+        "short F record: last_login should be None"
+    );
+    assert_eq!(
+        entry.login_count, 0,
+        "short F record: login_count should default to 0"
+    );
+    assert_eq!(
+        entry.account_flags, 0,
+        "short F record: account_flags should default to 0"
+    );
     assert!(!entry.is_disabled);
     assert!(!entry.is_locked);
 }
@@ -239,10 +250,7 @@ fn parse_short_f_record_returns_defaults() {
 fn parse_multiple_users_returns_all() {
     let f1 = build_f_record(0, 0, 0, 0, 5);
     let f2 = build_f_record(0, 0, 0, 0x0001, 10);
-    let data = build_sam_hive_two_users(
-        "AdminUser", "000001F4", &f1,
-        "GuestUser", "000001F5", &f2,
-    );
+    let data = build_sam_hive_two_users("AdminUser", "000001F4", &f1, "GuestUser", "000001F5", &f2);
     let hive = Hive::from_bytes(data).unwrap();
     let results = parse(&hive);
     assert_eq!(results.len(), 2, "should return one entry per username");

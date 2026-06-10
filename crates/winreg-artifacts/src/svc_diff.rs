@@ -103,7 +103,10 @@ pub fn classify_service(
 
     // Rule 4: no configured account
     if object_name.is_empty() {
-        return (true, Some("service has no configured account (ObjectName is empty)".to_string()));
+        return (
+            true,
+            Some("service has no configured account (ObjectName is empty)".to_string()),
+        );
     }
 
     (false, None)

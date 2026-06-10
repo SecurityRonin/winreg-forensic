@@ -15,8 +15,7 @@ use winreg_core::hive::Hive;
 // ---------------------------------------------------------------------------
 
 /// Correct key path relative to the hive root.
-const APPCOMPAT_KEY: &str =
-    "CurrentControlSet\\Control\\Session Manager\\AppCompatCache";
+const APPCOMPAT_KEY: &str = "CurrentControlSet\\Control\\Session Manager\\AppCompatCache";
 
 /// Value name holding the binary blob.
 const APPCOMPAT_VALUE: &str = "AppCompatCache";
@@ -68,9 +67,7 @@ fn parse_empty_hive_returns_empty() {
 #[test]
 fn parse_missing_key_returns_empty() {
     // Hive with an unrelated key, not the AppCompatCache path.
-    let data = TestHiveBuilder::new()
-        .add_key("SomeOtherKey\\Foo")
-        .build();
+    let data = TestHiveBuilder::new().add_key("SomeOtherKey\\Foo").build();
     let hive = Hive::from_bytes(data).unwrap();
     let entries = parse(&hive);
     assert!(

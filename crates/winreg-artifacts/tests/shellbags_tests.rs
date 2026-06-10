@@ -26,10 +26,7 @@ const REG_BINARY: u32 = 3;
 // ---------------------------------------------------------------------------
 
 fn mrulistex(indices: &[u32]) -> Vec<u8> {
-    let mut data: Vec<u8> = indices
-        .iter()
-        .flat_map(|&i| i.to_le_bytes())
-        .collect();
+    let mut data: Vec<u8> = indices.iter().flat_map(|&i| i.to_le_bytes()).collect();
     data.extend_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
     data
 }
@@ -83,9 +80,7 @@ fn parse_bagmru_key_returns_entry() {
 
 #[test]
 fn parse_entry_key_path_is_correct() {
-    let data = TestHiveBuilder::new()
-        .add_key(BAGMRU_PATH)
-        .build();
+    let data = TestHiveBuilder::new().add_key(BAGMRU_PATH).build();
     let hive = Hive::from_bytes(data).unwrap();
     let entries = parse(&hive);
     // The BagMRU key itself should appear (even with no slot values)
@@ -105,9 +100,7 @@ fn parse_entry_key_path_is_correct() {
 fn parse_last_written_populated() {
     // last_written comes from key metadata. Builder writes 0 filetime → None.
     // Field must exist and be Option<String>.
-    let data = TestHiveBuilder::new()
-        .add_key(BAGMRU_PATH)
-        .build();
+    let data = TestHiveBuilder::new().add_key(BAGMRU_PATH).build();
     let hive = Hive::from_bytes(data).unwrap();
     let entries = parse(&hive);
     assert_eq!(entries.len(), 1);
@@ -131,7 +124,11 @@ fn parse_mru_order_decoded() {
     let entries = parse(&hive);
     assert_eq!(entries.len(), 1);
     let order = &entries[0].mru_order;
-    assert_eq!(order.len(), 3, "MRUListEx [2,0,1,term] should decode to 3 items");
+    assert_eq!(
+        order.len(),
+        3,
+        "MRUListEx [2,0,1,term] should decode to 3 items"
+    );
     assert_eq!(order[0], "2", "first MRU slot should be '2'");
     assert_eq!(order[1], "0", "second MRU slot should be '0'");
     assert_eq!(order[2], "1", "third MRU slot should be '1'");
@@ -164,9 +161,7 @@ fn parse_subkey_creates_separate_entry() {
 #[test]
 fn parse_missing_mrulistex_gives_empty_order() {
     // BagMRU key with no MRUListEx value
-    let data = TestHiveBuilder::new()
-        .add_key(BAGMRU_PATH)
-        .build();
+    let data = TestHiveBuilder::new().add_key(BAGMRU_PATH).build();
     let hive = Hive::from_bytes(data).unwrap();
     let entries = parse(&hive);
     assert_eq!(entries.len(), 1);
@@ -212,7 +207,10 @@ fn shellbag_entry_struct_fields_accessible() {
         mru_order: vec!["2".to_string(), "0".to_string()],
     };
     assert_eq!(entry.path, "BagMRU[slot=0, size=8 bytes]");
-    assert_eq!(entry.key_path, "Software\\Microsoft\\Windows\\Shell\\BagMRU");
+    assert_eq!(
+        entry.key_path,
+        "Software\\Microsoft\\Windows\\Shell\\BagMRU"
+    );
     assert!(entry.last_written.is_none());
     assert_eq!(entry.mru_order.len(), 2);
 }

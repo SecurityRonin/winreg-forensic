@@ -87,7 +87,7 @@ fn classify_powershell_enc_is_suspicious() {
 
 #[test]
 fn classify_mshta_is_suspicious() {
-    let reason = classify_run_entry("mshta vbscript:Execute(\"CreateObject(...)\")")  ;
+    let reason = classify_run_entry("mshta vbscript:Execute(\"CreateObject(...)\")");
     assert!(reason.is_some(), "mshta should be classified suspicious");
 }
 
@@ -98,7 +98,10 @@ fn classify_certutil_decode_is_suspicious() {
     let reason = classify_run_entry(
         "certutil -decode C:\\Windows\\Temp\\payload.b64 C:\\Windows\\Temp\\payload.exe",
     );
-    assert!(reason.is_some(), "certutil -decode should be classified suspicious");
+    assert!(
+        reason.is_some(),
+        "certutil -decode should be classified suspicious"
+    );
 }
 
 // ── Test 7: classify_run_entry — rundll32 from temp is suspicious ─────────────
@@ -106,7 +109,10 @@ fn classify_certutil_decode_is_suspicious() {
 #[test]
 fn classify_rundll32_from_temp_is_suspicious() {
     let reason = classify_run_entry(r"rundll32.exe C:\Users\victim\AppData\Local\Temp\evil.dll,EP");
-    assert!(reason.is_some(), "rundll32 from temp should be classified suspicious");
+    assert!(
+        reason.is_some(),
+        "rundll32 from temp should be classified suspicious"
+    );
 }
 
 // ── Test 8: classify_run_entry — normal path is benign ───────────────────────
@@ -114,7 +120,10 @@ fn classify_rundll32_from_temp_is_suspicious() {
 #[test]
 fn classify_normal_path_is_benign() {
     let reason = classify_run_entry(r"C:\Program Files\App\app.exe");
-    assert!(reason.is_none(), "normal program path should not be suspicious");
+    assert!(
+        reason.is_none(),
+        "normal program path should not be suspicious"
+    );
 }
 
 // ── Test 9: suspicious entry sets is_suspicious flag ─────────────────────────
@@ -168,8 +177,8 @@ fn hive_type_detected_for_hklm() {
     // at root (see detect.rs detection logic).
     let run_path = "Microsoft\\Windows\\CurrentVersion\\Run";
     let data = TestHiveBuilder::new()
-        .add_key("Microsoft")       // triggers SOFTWARE detection
-        .add_key("Classes")         // triggers SOFTWARE detection
+        .add_key("Microsoft") // triggers SOFTWARE detection
+        .add_key("Classes") // triggers SOFTWARE detection
         .add_key(run_path)
         .add_value(run_path, "TestApp", 1, &utf16le(r"C:\test\app.exe"))
         .build();

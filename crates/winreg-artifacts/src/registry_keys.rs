@@ -173,7 +173,10 @@ fn build_preview(v: &winreg_core::value::Value<'_>) -> String {
             // Binary / Unknown: hex preview up to 32 bytes
             let data = v.raw_data().unwrap_or_default();
             let preview_len = data.len().min(32);
-            let hex: Vec<String> = data[..preview_len].iter().map(|b| format!("{b:02X}")).collect();
+            let hex: Vec<String> = data[..preview_len]
+                .iter()
+                .map(|b| format!("{b:02X}"))
+                .collect();
             let s = hex.join(" ");
             if data.len() > 32 {
                 format!("{s}...")

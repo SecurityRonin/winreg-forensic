@@ -76,7 +76,10 @@ fn parse_url_with_time_sets_last_visited() {
     );
     // Should be a valid ISO 8601 string
     let ts = entries[0].last_visited.as_ref().unwrap();
-    assert!(ts.contains("2023"), "ISO timestamp should include year 2023");
+    assert!(
+        ts.contains("2023"),
+        "ISO timestamp should include year 2023"
+    );
 }
 
 // ── Test 4: URL without time entry has None ───────────────────────────────────
@@ -111,7 +114,10 @@ fn classify_pastebin_is_suspicious() {
     let hive = Hive::from_bytes(data).unwrap();
     let entries = parse(&hive);
     assert_eq!(entries.len(), 1);
-    assert!(entries[0].is_suspicious, "pastebin.com should be suspicious");
+    assert!(
+        entries[0].is_suspicious,
+        "pastebin.com should be suspicious"
+    );
     assert!(
         entries[0].suspicious_reason.is_some(),
         "suspicious_reason should be set"
@@ -147,7 +153,10 @@ fn classify_normal_url_is_benign() {
     let hive = Hive::from_bytes(data).unwrap();
     let entries = parse(&hive);
     assert_eq!(entries.len(), 1);
-    assert!(!entries[0].is_suspicious, "microsoft.com should not be suspicious");
+    assert!(
+        !entries[0].is_suspicious,
+        "microsoft.com should not be suspicious"
+    );
     assert!(entries[0].suspicious_reason.is_none());
 }
 
@@ -183,7 +192,11 @@ fn parse_suspicious_url_sets_flag() {
     assert_eq!(entries.len(), 1);
     assert!(entries[0].is_suspicious, "transfer.sh should be suspicious");
     assert!(
-        entries[0].suspicious_reason.as_deref().unwrap_or("").contains("transfer.sh"),
+        entries[0]
+            .suspicious_reason
+            .as_deref()
+            .unwrap_or("")
+            .contains("transfer.sh"),
         "reason should mention transfer.sh"
     );
 }
@@ -202,7 +215,10 @@ fn parse_multiple_urls_returned() {
     let entries = parse(&hive);
     assert_eq!(entries.len(), 2, "should return 2 URL entries");
     let suspicious_count = entries.iter().filter(|e| e.is_suspicious).count();
-    assert_eq!(suspicious_count, 1, "only pastebin.com should be suspicious");
+    assert_eq!(
+        suspicious_count, 1,
+        "only pastebin.com should be suspicious"
+    );
 }
 
 // ── Test 11: trycloudflare.com is suspicious ──────────────────────────────────

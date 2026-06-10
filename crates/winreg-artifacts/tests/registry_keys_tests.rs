@@ -16,7 +16,10 @@ fn walk_keys_empty_hive_returns_root() {
     let data = TestHiveBuilder::new().build();
     let hive = Hive::from_bytes(data).unwrap();
     let keys = walk_keys(&hive);
-    assert!(!keys.is_empty(), "empty hive should still return the root key");
+    assert!(
+        !keys.is_empty(),
+        "empty hive should still return the root key"
+    );
     assert_eq!(keys[0].subkey_count, 0);
     assert_eq!(keys[0].value_count, 0);
 }
@@ -33,7 +36,12 @@ fn walk_keys_nested_returns_all() {
     let hive = Hive::from_bytes(data).unwrap();
     let keys = walk_keys(&hive);
     // Root + Control Panel + Desktop + Colors = 4
-    assert_eq!(keys.len(), 4, "expected 4 keys (root + 3 nested), got {}", keys.len());
+    assert_eq!(
+        keys.len(),
+        4,
+        "expected 4 keys (root + 3 nested), got {}",
+        keys.len()
+    );
 }
 
 // ── Test 3: last_written is populated when set ────────────────────────
@@ -67,8 +75,14 @@ fn walk_keys_counts_are_correct() {
     let hive = Hive::from_bytes(data).unwrap();
     let keys = walk_keys(&hive);
     // Find the "Software" key
-    let software = keys.iter().find(|k| k.name == "Software").expect("Software key not found");
-    assert_eq!(software.subkey_count, 1, "Software should have 1 subkey (Microsoft)");
+    let software = keys
+        .iter()
+        .find(|k| k.name == "Software")
+        .expect("Software key not found");
+    assert_eq!(
+        software.subkey_count, 1,
+        "Software should have 1 subkey (Microsoft)"
+    );
     assert_eq!(software.value_count, 2, "Software should have 2 values");
 }
 
@@ -94,10 +108,17 @@ fn walk_values_at_path_returns_values() {
         .build();
     let hive = Hive::from_bytes(data).unwrap();
     let values = walk_values(&hive, "Control Panel\\Desktop");
-    assert_eq!(values.len(), 2, "expected 2 values at Control Panel\\Desktop");
+    assert_eq!(
+        values.len(),
+        2,
+        "expected 2 values at Control Panel\\Desktop"
+    );
     let names: Vec<&str> = values.iter().map(|v| v.name.as_str()).collect();
     assert!(names.contains(&"Wallpaper"), "expected Wallpaper value");
-    assert!(names.contains(&"WallpaperStyle"), "expected WallpaperStyle value");
+    assert!(
+        names.contains(&"WallpaperStyle"),
+        "expected WallpaperStyle value"
+    );
 }
 
 // ── Test 6: nonexistent path returns empty vec ────────────────────────
@@ -107,7 +128,10 @@ fn walk_values_missing_path_returns_empty() {
     let data = TestHiveBuilder::new().add_key("Software").build();
     let hive = Hive::from_bytes(data).unwrap();
     let values = walk_values(&hive, "NoSuchKey\\Nowhere");
-    assert!(values.is_empty(), "missing key path should return empty Vec");
+    assert!(
+        values.is_empty(),
+        "missing key path should return empty Vec"
+    );
 }
 
 // ── Test 7: DWORD value shows numeric preview ─────────────────────────
@@ -198,7 +222,10 @@ fn walk_keys_path_is_full_from_root() {
     let hive = Hive::from_bytes(data).unwrap();
     let keys = walk_keys(&hive);
     // Find the "Windows" key — its path should be the full path
-    let windows = keys.iter().find(|k| k.name == "Windows").expect("Windows key not found");
+    let windows = keys
+        .iter()
+        .find(|k| k.name == "Windows")
+        .expect("Windows key not found");
     assert_eq!(
         windows.path, "Software\\Microsoft\\Windows",
         "path should be full path from root, not just the key name"

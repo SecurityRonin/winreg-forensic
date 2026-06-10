@@ -111,10 +111,7 @@ fn parse_hkcu_only_inprocserver32_value_captured() {
 
 #[test]
 fn classify_appdata_path_is_suspicious() {
-    let (suspicious, reason) = classify_com_hijack(
-        "",
-        r"C:\Users\victim\AppData\Roaming\evil.dll",
-    );
+    let (suspicious, reason) = classify_com_hijack("", r"C:\Users\victim\AppData\Roaming\evil.dll");
     assert!(suspicious, "AppData path should be suspicious");
     assert!(reason.is_some(), "should provide a reason");
 }
@@ -135,8 +132,7 @@ fn classify_temp_path_is_suspicious() {
 
 #[test]
 fn classify_system32_path_benign() {
-    let (suspicious, _) =
-        classify_com_hijack("", r"C:\Windows\System32\shell32.dll");
+    let (suspicious, _) = classify_com_hijack("", r"C:\Windows\System32\shell32.dll");
     assert!(!suspicious, "System32 path should NOT be suspicious");
 }
 

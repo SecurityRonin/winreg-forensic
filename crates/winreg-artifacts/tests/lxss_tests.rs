@@ -10,7 +10,7 @@
 mod common;
 
 use common::hive_builder::TestHiveBuilder;
-use winreg_artifacts::lxss::{DistroState, DistroVersion, LxssDistro, parse};
+use winreg_artifacts::lxss::{parse, DistroState, DistroVersion, LxssDistro};
 use winreg_core::hive::Hive;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -50,7 +50,10 @@ fn parse_lxss_key_no_distros_returns_empty() {
     let data = TestHiveBuilder::new().add_key(LXSS_PATH).build();
     let hive = Hive::from_bytes(data).unwrap();
     let distros = parse(&hive);
-    assert!(distros.is_empty(), "Lxss key with no subkeys should yield empty Vec");
+    assert!(
+        distros.is_empty(),
+        "Lxss key with no subkeys should yield empty Vec"
+    );
 }
 
 // ── Test 3: single distro, all fields present ─────────────────────────────────
@@ -68,7 +71,7 @@ fn parse_single_distro_all_fields() {
         .add_value(&key, "DistributionName", 1, &utf16le(dist_name))
         .add_value(&key, "PackageFamilyName", 1, &utf16le(pkg_name))
         .add_value(&key, "BasePath", 1, &utf16le(base_path))
-        .add_value(&key, "State", 4, &dword_le(1))   // 1 = Installed
+        .add_value(&key, "State", 4, &dword_le(1)) // 1 = Installed
         .add_value(&key, "Version", 4, &dword_le(2)) // 2 = WSL2
         .add_value(&key, "DefaultUid", 4, &dword_le(1000))
         .build();
@@ -85,7 +88,10 @@ fn parse_single_distro_all_fields() {
     assert_eq!(d.state, DistroState::Installed);
     assert_eq!(d.version, DistroVersion::Wsl2);
     assert_eq!(d.default_uid, Some(1000));
-    assert!(d.vhdx_path().is_some(), "vhdx_path() should derive path from BasePath");
+    assert!(
+        d.vhdx_path().is_some(),
+        "vhdx_path() should derive path from BasePath"
+    );
     let vhdx = d.vhdx_path().unwrap();
     assert!(
         vhdx.ends_with("ext4.vhdx"),
@@ -102,7 +108,12 @@ fn parse_wsl1_distro_version() {
         .add_key(LXSS_PATH)
         .add_key(&key)
         .add_value(&key, "DistributionName", 1, &utf16le("Legacy"))
-        .add_value(&key, "BasePath", 1, &utf16le(r"C:\Users\bob\AppData\Local\Packages\Legacy\LocalState"))
+        .add_value(
+            &key,
+            "BasePath",
+            1,
+            &utf16le(r"C:\Users\bob\AppData\Local\Packages\Legacy\LocalState"),
+        )
         .add_value(&key, "State", 4, &dword_le(1))
         .add_value(&key, "Version", 4, &dword_le(1)) // WSL1
         .build();
@@ -178,7 +189,10 @@ fn parse_two_distros_both_returned() {
     let hive = Hive::from_bytes(data).unwrap();
     let distros = parse(&hive);
     assert_eq!(distros.len(), 2, "expected 2 distros");
-    let names: Vec<&str> = distros.iter().map(|d| d.distribution_name.as_str()).collect();
+    let names: Vec<&str> = distros
+        .iter()
+        .map(|d| d.distribution_name.as_str())
+        .collect();
     assert!(names.contains(&"Ubuntu-22.04"));
     assert!(names.contains(&"Debian"));
 }
@@ -201,7 +215,10 @@ fn parse_default_distribution_guid() {
     let hive = Hive::from_bytes(data).unwrap();
     let distros = parse(&hive);
     assert_eq!(distros.len(), 1);
-    assert!(distros[0].is_default, "distro matching DefaultDistribution should have is_default=true");
+    assert!(
+        distros[0].is_default,
+        "distro matching DefaultDistribution should have is_default=true"
+    );
 }
 
 // ── Test 9: non-GUID subkeys are skipped ─────────────────────────────────────
@@ -223,7 +240,11 @@ fn parse_non_guid_subkeys_are_skipped() {
 
     let hive = Hive::from_bytes(data).unwrap();
     let distros = parse(&hive);
-    assert_eq!(distros.len(), 1, "only GUID-named subkeys should be included");
+    assert_eq!(
+        distros.len(),
+        1,
+        "only GUID-named subkeys should be included"
+    );
 }
 
 // ── Test 10: vhdx_path() returns None for WSL1 ───────────────────────────────
@@ -235,7 +256,12 @@ fn vhdx_path_none_for_wsl1() {
         .add_key(LXSS_PATH)
         .add_key(&key)
         .add_value(&key, "DistributionName", 1, &utf16le("Legacy"))
-        .add_value(&key, "BasePath", 1, &utf16le(r"C:\Users\bob\AppData\Local\lxss"))
+        .add_value(
+            &key,
+            "BasePath",
+            1,
+            &utf16le(r"C:\Users\bob\AppData\Local\lxss"),
+        )
         .add_value(&key, "State", 4, &dword_le(1))
         .add_value(&key, "Version", 4, &dword_le(1)) // WSL1
         .build();

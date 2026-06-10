@@ -72,10 +72,7 @@ fn parse_secrets_empty_hive_returns_empty() {
 fn parse_secrets_returns_entry_for_each_subkey() {
     let s1 = secret_key("$MACHINE.ACC");
     let s2 = secret_key("DPAPI_SYSTEM");
-    let data = TestHiveBuilder::new()
-        .add_key(&s1)
-        .add_key(&s2)
-        .build();
+    let data = TestHiveBuilder::new().add_key(&s1).add_key(&s2).build();
     let hive = Hive::from_bytes(data).unwrap();
     let entries = parse_secrets(&hive);
     assert_eq!(
@@ -253,7 +250,10 @@ fn parse_dcc2_slots_populated_slot_detected() {
     let nl1 = slots.iter().find(|s| s.slot_name == "NL$1");
     assert!(nl1.is_some(), "NL$1 should be present in results");
     let nl1 = nl1.unwrap();
-    assert!(nl1.is_populated, "NL$1 with non-empty data should be is_populated=true");
+    assert!(
+        nl1.is_populated,
+        "NL$1 with non-empty data should be is_populated=true"
+    );
     assert_eq!(nl1.data_size, 72, "data_size should match blob length");
 }
 

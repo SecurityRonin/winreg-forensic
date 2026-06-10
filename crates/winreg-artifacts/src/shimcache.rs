@@ -32,8 +32,7 @@ pub struct ShimcacheEntry {
 // Key / value paths
 // ---------------------------------------------------------------------------
 
-const APPCOMPAT_KEY: &str =
-    "CurrentControlSet\\Control\\Session Manager\\AppCompatCache";
+const APPCOMPAT_KEY: &str = "CurrentControlSet\\Control\\Session Manager\\AppCompatCache";
 const APPCOMPAT_VALUE: &str = "AppCompatCache";
 
 // ---------------------------------------------------------------------------
@@ -154,9 +153,12 @@ fn parse_win10(blob: &[u8], raw_size: usize) -> Vec<ShimcacheEntry> {
             break;
         }
 
-        let entry_data_len =
-            u32::from_le_bytes([blob[offset + 4], blob[offset + 5], blob[offset + 6], blob[offset + 7]])
-                as usize;
+        let entry_data_len = u32::from_le_bytes([
+            blob[offset + 4],
+            blob[offset + 5],
+            blob[offset + 6],
+            blob[offset + 7],
+        ]) as usize;
 
         let body_start = offset + 8;
         let body_end = body_start + entry_data_len;

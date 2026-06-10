@@ -123,9 +123,7 @@ pub fn classify_run_entry(command: &str) -> Option<String> {
     }
 
     // rundll32 from temp or appdata
-    if lower.contains("rundll32")
-        && (lower.contains("\\temp\\") || lower.contains("\\appdata\\"))
-    {
+    if lower.contains("rundll32") && (lower.contains("\\temp\\") || lower.contains("\\appdata\\")) {
         return Some("rundll32 with DLL in \\temp\\ or \\appdata\\ path".to_string());
     }
 

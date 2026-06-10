@@ -27,9 +27,7 @@ const REG_DWORD: u32 = 4;
 
 /// Encode a string as UTF-16LE bytes (no null terminator — builder handles it).
 fn reg_sz(s: &str) -> Vec<u8> {
-    s.encode_utf16()
-        .flat_map(u16::to_le_bytes)
-        .collect()
+    s.encode_utf16().flat_map(u16::to_le_bytes).collect()
 }
 
 /// Encode a u32 as 4-byte little-endian (REG_DWORD).
@@ -66,12 +64,22 @@ fn parse_service_returns_entry() {
     let svc = svc_key("Dnscache");
     let data = TestHiveBuilder::new()
         .add_key(&svc)
-        .add_value(&svc, "ImagePath",   REG_SZ,    &reg_sz(r"C:\Windows\system32\svchost.exe"))
-        .add_value(&svc, "DisplayName", REG_SZ,    &reg_sz("DNS Client"))
-        .add_value(&svc, "Start",       REG_DWORD, &reg_dword(2))
-        .add_value(&svc, "Type",        REG_DWORD, &reg_dword(32))
-        .add_value(&svc, "ObjectName",  REG_SZ,    &reg_sz("NT AUTHORITY\\NetworkService"))
-        .add_value(&svc, "Description", REG_SZ,    &reg_sz("Resolves DNS names."))
+        .add_value(
+            &svc,
+            "ImagePath",
+            REG_SZ,
+            &reg_sz(r"C:\Windows\system32\svchost.exe"),
+        )
+        .add_value(&svc, "DisplayName", REG_SZ, &reg_sz("DNS Client"))
+        .add_value(&svc, "Start", REG_DWORD, &reg_dword(2))
+        .add_value(&svc, "Type", REG_DWORD, &reg_dword(32))
+        .add_value(
+            &svc,
+            "ObjectName",
+            REG_SZ,
+            &reg_sz("NT AUTHORITY\\NetworkService"),
+        )
+        .add_value(&svc, "Description", REG_SZ, &reg_sz("Resolves DNS names."))
         .build();
     let hive = Hive::from_bytes(data).unwrap();
     let entries = parse(&hive);
@@ -92,12 +100,12 @@ fn parse_image_path_extracted() {
     let path = r"C:\Windows\system32\spoolsv.exe";
     let data = TestHiveBuilder::new()
         .add_key(&svc)
-        .add_value(&svc, "ImagePath",   REG_SZ,    &reg_sz(path))
-        .add_value(&svc, "DisplayName", REG_SZ,    &reg_sz("Print Spooler"))
-        .add_value(&svc, "Start",       REG_DWORD, &reg_dword(2))
-        .add_value(&svc, "Type",        REG_DWORD, &reg_dword(16))
-        .add_value(&svc, "ObjectName",  REG_SZ,    &reg_sz("LocalSystem"))
-        .add_value(&svc, "Description", REG_SZ,    &reg_sz("Manages print jobs."))
+        .add_value(&svc, "ImagePath", REG_SZ, &reg_sz(path))
+        .add_value(&svc, "DisplayName", REG_SZ, &reg_sz("Print Spooler"))
+        .add_value(&svc, "Start", REG_DWORD, &reg_dword(2))
+        .add_value(&svc, "Type", REG_DWORD, &reg_dword(16))
+        .add_value(&svc, "ObjectName", REG_SZ, &reg_sz("LocalSystem"))
+        .add_value(&svc, "Description", REG_SZ, &reg_sz("Manages print jobs."))
         .build();
     let hive = Hive::from_bytes(data).unwrap();
     let entries = parse(&hive);
@@ -117,17 +125,25 @@ fn parse_start_type_extracted() {
     let svc = svc_key("WSearch");
     let data = TestHiveBuilder::new()
         .add_key(&svc)
-        .add_value(&svc, "ImagePath",   REG_SZ,    &reg_sz(r"C:\Windows\system32\SearchIndexer.exe"))
-        .add_value(&svc, "DisplayName", REG_SZ,    &reg_sz("Windows Search"))
-        .add_value(&svc, "Start",       REG_DWORD, &reg_dword(3))
-        .add_value(&svc, "Type",        REG_DWORD, &reg_dword(16))
-        .add_value(&svc, "ObjectName",  REG_SZ,    &reg_sz("LocalSystem"))
-        .add_value(&svc, "Description", REG_SZ,    &reg_sz("Provides indexing."))
+        .add_value(
+            &svc,
+            "ImagePath",
+            REG_SZ,
+            &reg_sz(r"C:\Windows\system32\SearchIndexer.exe"),
+        )
+        .add_value(&svc, "DisplayName", REG_SZ, &reg_sz("Windows Search"))
+        .add_value(&svc, "Start", REG_DWORD, &reg_dword(3))
+        .add_value(&svc, "Type", REG_DWORD, &reg_dword(16))
+        .add_value(&svc, "ObjectName", REG_SZ, &reg_sz("LocalSystem"))
+        .add_value(&svc, "Description", REG_SZ, &reg_sz("Provides indexing."))
         .build();
     let hive = Hive::from_bytes(data).unwrap();
     let entries = parse(&hive);
     assert!(!entries.is_empty());
-    assert_eq!(entries[0].start_type, 3, "start_type should equal 3 (Manual)");
+    assert_eq!(
+        entries[0].start_type, 3,
+        "start_type should equal 3 (Manual)"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -140,11 +156,16 @@ fn parse_missing_description_captured() {
     let data = TestHiveBuilder::new()
         .add_key(&svc)
         // No Description value
-        .add_value(&svc, "ImagePath",   REG_SZ,    &reg_sz(r"C:\Windows\system32\evil.exe"))
-        .add_value(&svc, "DisplayName", REG_SZ,    &reg_sz("Evil Service"))
-        .add_value(&svc, "Start",       REG_DWORD, &reg_dword(3))
-        .add_value(&svc, "Type",        REG_DWORD, &reg_dword(16))
-        .add_value(&svc, "ObjectName",  REG_SZ,    &reg_sz("LocalSystem"))
+        .add_value(
+            &svc,
+            "ImagePath",
+            REG_SZ,
+            &reg_sz(r"C:\Windows\system32\evil.exe"),
+        )
+        .add_value(&svc, "DisplayName", REG_SZ, &reg_sz("Evil Service"))
+        .add_value(&svc, "Start", REG_DWORD, &reg_dword(3))
+        .add_value(&svc, "Type", REG_DWORD, &reg_dword(16))
+        .add_value(&svc, "ObjectName", REG_SZ, &reg_sz("LocalSystem"))
         .build();
     let hive = Hive::from_bytes(data).unwrap();
     let entries = parse(&hive);
@@ -164,12 +185,17 @@ fn classify_temp_path_is_suspicious() {
     let svc = svc_key("TempSvc");
     let data = TestHiveBuilder::new()
         .add_key(&svc)
-        .add_value(&svc, "ImagePath",   REG_SZ,    &reg_sz(r"C:\Windows\Temp\payload.exe"))
-        .add_value(&svc, "DisplayName", REG_SZ,    &reg_sz("Temp Service"))
-        .add_value(&svc, "Start",       REG_DWORD, &reg_dword(2))
-        .add_value(&svc, "Type",        REG_DWORD, &reg_dword(16))
-        .add_value(&svc, "ObjectName",  REG_SZ,    &reg_sz("LocalSystem"))
-        .add_value(&svc, "Description", REG_SZ,    &reg_sz("Temp svc."))
+        .add_value(
+            &svc,
+            "ImagePath",
+            REG_SZ,
+            &reg_sz(r"C:\Windows\Temp\payload.exe"),
+        )
+        .add_value(&svc, "DisplayName", REG_SZ, &reg_sz("Temp Service"))
+        .add_value(&svc, "Start", REG_DWORD, &reg_dword(2))
+        .add_value(&svc, "Type", REG_DWORD, &reg_dword(16))
+        .add_value(&svc, "ObjectName", REG_SZ, &reg_sz("LocalSystem"))
+        .add_value(&svc, "Description", REG_SZ, &reg_sz("Temp svc."))
         .build();
     let hive = Hive::from_bytes(data).unwrap();
     let entries = parse(&hive);
@@ -189,12 +215,17 @@ fn classify_powershell_image_is_suspicious() {
     let svc = svc_key("PSSvc");
     let data = TestHiveBuilder::new()
         .add_key(&svc)
-        .add_value(&svc, "ImagePath",   REG_SZ,    &reg_sz(r"C:\Windows\system32\powershell.exe -nop"))
-        .add_value(&svc, "DisplayName", REG_SZ,    &reg_sz("PS Service"))
-        .add_value(&svc, "Start",       REG_DWORD, &reg_dword(2))
-        .add_value(&svc, "Type",        REG_DWORD, &reg_dword(16))
-        .add_value(&svc, "ObjectName",  REG_SZ,    &reg_sz("LocalSystem"))
-        .add_value(&svc, "Description", REG_SZ,    &reg_sz("PS svc."))
+        .add_value(
+            &svc,
+            "ImagePath",
+            REG_SZ,
+            &reg_sz(r"C:\Windows\system32\powershell.exe -nop"),
+        )
+        .add_value(&svc, "DisplayName", REG_SZ, &reg_sz("PS Service"))
+        .add_value(&svc, "Start", REG_DWORD, &reg_dword(2))
+        .add_value(&svc, "Type", REG_DWORD, &reg_dword(16))
+        .add_value(&svc, "ObjectName", REG_SZ, &reg_sz("LocalSystem"))
+        .add_value(&svc, "Description", REG_SZ, &reg_sz("PS svc."))
         .build();
     let hive = Hive::from_bytes(data).unwrap();
     let entries = parse(&hive);
@@ -213,11 +244,14 @@ fn classify_powershell_image_is_suspicious() {
 fn classify_auto_start_no_description_non_system32_is_suspicious() {
     let (is_suspicious, reason) = classify_service(
         r"C:\ProgramFiles\Vendor\service.exe",
-        2,   // Auto
-        "",  // no description
+        2,  // Auto
+        "", // no description
         "LocalSystem",
     );
-    assert!(is_suspicious, "auto-start with no description outside system32 should be suspicious");
+    assert!(
+        is_suspicious,
+        "auto-start with no description outside system32 should be suspicious"
+    );
     assert!(reason.is_some());
 }
 
@@ -250,37 +284,53 @@ fn parse_multiple_services_returns_all() {
     let svc3 = svc_key("WSearch");
     let data = TestHiveBuilder::new()
         .add_key(&svc1)
-        .add_value(&svc1, "ImagePath",   REG_SZ,    &reg_sz(r"C:\Windows\system32\svchost.exe"))
-        .add_value(&svc1, "Start",       REG_DWORD, &reg_dword(2))
-        .add_value(&svc1, "Type",        REG_DWORD, &reg_dword(32))
-        .add_value(&svc1, "ObjectName",  REG_SZ,    &reg_sz("NT AUTHORITY\\NetworkService"))
-        .add_value(&svc1, "DisplayName", REG_SZ,    &reg_sz("DNS Client"))
-        .add_value(&svc1, "Description", REG_SZ,    &reg_sz("DNS resolver."))
+        .add_value(
+            &svc1,
+            "ImagePath",
+            REG_SZ,
+            &reg_sz(r"C:\Windows\system32\svchost.exe"),
+        )
+        .add_value(&svc1, "Start", REG_DWORD, &reg_dword(2))
+        .add_value(&svc1, "Type", REG_DWORD, &reg_dword(32))
+        .add_value(
+            &svc1,
+            "ObjectName",
+            REG_SZ,
+            &reg_sz("NT AUTHORITY\\NetworkService"),
+        )
+        .add_value(&svc1, "DisplayName", REG_SZ, &reg_sz("DNS Client"))
+        .add_value(&svc1, "Description", REG_SZ, &reg_sz("DNS resolver."))
         .add_key(&svc2)
-        .add_value(&svc2, "ImagePath",   REG_SZ,    &reg_sz(r"C:\Windows\system32\spoolsv.exe"))
-        .add_value(&svc2, "Start",       REG_DWORD, &reg_dword(2))
-        .add_value(&svc2, "Type",        REG_DWORD, &reg_dword(16))
-        .add_value(&svc2, "ObjectName",  REG_SZ,    &reg_sz("LocalSystem"))
-        .add_value(&svc2, "DisplayName", REG_SZ,    &reg_sz("Print Spooler"))
-        .add_value(&svc2, "Description", REG_SZ,    &reg_sz("Manages printing."))
+        .add_value(
+            &svc2,
+            "ImagePath",
+            REG_SZ,
+            &reg_sz(r"C:\Windows\system32\spoolsv.exe"),
+        )
+        .add_value(&svc2, "Start", REG_DWORD, &reg_dword(2))
+        .add_value(&svc2, "Type", REG_DWORD, &reg_dword(16))
+        .add_value(&svc2, "ObjectName", REG_SZ, &reg_sz("LocalSystem"))
+        .add_value(&svc2, "DisplayName", REG_SZ, &reg_sz("Print Spooler"))
+        .add_value(&svc2, "Description", REG_SZ, &reg_sz("Manages printing."))
         .add_key(&svc3)
-        .add_value(&svc3, "ImagePath",   REG_SZ,    &reg_sz(r"C:\Windows\system32\SearchIndexer.exe"))
-        .add_value(&svc3, "Start",       REG_DWORD, &reg_dword(3))
-        .add_value(&svc3, "Type",        REG_DWORD, &reg_dword(16))
-        .add_value(&svc3, "ObjectName",  REG_SZ,    &reg_sz("LocalSystem"))
-        .add_value(&svc3, "DisplayName", REG_SZ,    &reg_sz("Windows Search"))
-        .add_value(&svc3, "Description", REG_SZ,    &reg_sz("Indexing service."))
+        .add_value(
+            &svc3,
+            "ImagePath",
+            REG_SZ,
+            &reg_sz(r"C:\Windows\system32\SearchIndexer.exe"),
+        )
+        .add_value(&svc3, "Start", REG_DWORD, &reg_dword(3))
+        .add_value(&svc3, "Type", REG_DWORD, &reg_dword(16))
+        .add_value(&svc3, "ObjectName", REG_SZ, &reg_sz("LocalSystem"))
+        .add_value(&svc3, "DisplayName", REG_SZ, &reg_sz("Windows Search"))
+        .add_value(&svc3, "Description", REG_SZ, &reg_sz("Indexing service."))
         .build();
     let hive = Hive::from_bytes(data).unwrap();
     let entries = parse(&hive);
-    assert_eq!(
-        entries.len(),
-        3,
-        "should return all 3 service entries"
-    );
+    assert_eq!(entries.len(), 3, "should return all 3 service entries");
     // All three service names should be present
     let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
     assert!(names.contains(&"Dnscache"), "Dnscache should be in results");
-    assert!(names.contains(&"Spooler"),  "Spooler should be in results");
-    assert!(names.contains(&"WSearch"),  "WSearch should be in results");
+    assert!(names.contains(&"Spooler"), "Spooler should be in results");
+    assert!(names.contains(&"WSearch"), "WSearch should be in results");
 }
