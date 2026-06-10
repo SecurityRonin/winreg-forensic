@@ -1,6 +1,7 @@
 //! Forensic artifact decoders for Windows Registry.
 
 pub mod amcache;
+pub mod catalog_scan;
 pub mod com_hijacking;
 pub mod lsadump;
 pub mod lxss;
