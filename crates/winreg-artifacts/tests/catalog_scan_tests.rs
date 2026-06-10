@@ -13,7 +13,7 @@
 mod common;
 
 use common::hive_builder::TestHiveBuilder;
-use winreg_artifacts::catalog_scan::{scan, CatalogHit};
+use winreg_artifacts::catalog_scan::{scan, scan_users, CatalogHit, UserHive, UserIdentity};
 use winreg_core::hive::Hive;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -31,6 +31,12 @@ const REG_DWORD: u32 = 4;
 /// (it looks for `Microsoft` + `Classes` at the root).
 fn software_root(b: TestHiveBuilder) -> TestHiveBuilder {
     b.add_key("Classes")
+}
+
+/// Add the root subkeys that make `detect_hive_type` classify a hive as
+/// NTUSER.DAT (it looks for `Software` plus a typical user-profile key).
+fn ntuser_root(b: TestHiveBuilder) -> TestHiveBuilder {
+    b.add_key("Software").add_key("Environment")
 }
 
 /// Find the hit whose catalog id matches.
@@ -222,4 +228,134 @@ fn scan_expands_midsegment_star_and_double_star() {
     assert!(wdigest_hit
         .key_path
         .starts_with(r"ControlSet001\Control\SecurityProviders\WDigest"));
+}
+
+// ── Test 8: MULTI-USER — per-user descriptor applies to every user hive ──────
+
+/// Build an NTUSER hive carrying a single HKCU Run-key value.
+fn ntuser_with_run(value_name: &str, cmd: &str) -> Vec<u8> {
+    // `run_key_hkcu`: NtUser, key `Software\Microsoft\Windows\CurrentVersion\Run`
+    // (the leading `Software\` is stripped to the hive-relative path).
+    let run = r"Software\Microsoft\Windows\CurrentVersion\Run";
+    ntuser_root(TestHiveBuilder::new())
+        .add_key(r"Software\Microsoft")
+        .add_key(r"Software\Microsoft\Windows")
+        .add_key(r"Software\Microsoft\Windows\CurrentVersion")
+        .add_key(run)
+        .add_value(run, value_name, REG_SZ, &utf16le(cmd))
+        .build()
+}
+
+#[test]
+fn scan_users_applies_per_user_run_key_to_both_users() {
+    let alice_cmd = r"C:\Users\alice\evil.exe";
+    let bob_cmd = r"C:\Users\bob\backdoor.exe";
+
+    let alice = UserHive {
+        identity: UserIdentity {
+            profile: Some("alice".to_string()),
+            sid: Some("S-1-5-21-111-1001".to_string()),
+        },
+        hive: Hive::from_bytes(ntuser_with_run("AlicePersist", alice_cmd)).unwrap(),
+    };
+    let bob = UserHive {
+        identity: UserIdentity {
+            profile: Some("bob".to_string()),
+            sid: Some("S-1-5-21-111-1002".to_string()),
+        },
+        hive: Hive::from_bytes(ntuser_with_run("BobPersist", bob_cmd)).unwrap(),
+    };
+
+    let hits = scan_users(&[alice, bob]);
+
+    // The HKCU Run descriptor must resolve once per user, each tagged.
+    let alice_hit = hits
+        .iter()
+        .find(|h| {
+            h.catalog_id == "run_key_hkcu" && h.value_name.as_deref() == Some("AlicePersist")
+        })
+        .expect("per-user Run descriptor must apply to alice's hive");
+    let bob_hit = hits
+        .iter()
+        .find(|h| h.catalog_id == "run_key_hkcu" && h.value_name.as_deref() == Some("BobPersist"))
+        .expect("per-user Run descriptor must apply to bob's hive");
+
+    assert_eq!(alice_hit.value_data, alice_cmd);
+    assert_eq!(
+        alice_hit.user.as_ref().and_then(|u| u.profile.as_deref()),
+        Some("alice")
+    );
+    assert_eq!(
+        alice_hit.user.as_ref().and_then(|u| u.sid.as_deref()),
+        Some("S-1-5-21-111-1001")
+    );
+
+    assert_eq!(bob_hit.value_data, bob_cmd);
+    assert_eq!(
+        bob_hit.user.as_ref().and_then(|u| u.profile.as_deref()),
+        Some("bob")
+    );
+
+    // Cross-attribution must not happen: alice's hit is never tagged bob.
+    assert!(hits.iter().all(|h| {
+        let prof = h.user.as_ref().and_then(|u| u.profile.as_deref());
+        !(h.value_name.as_deref() == Some("AlicePersist") && prof == Some("bob"))
+    }));
+}
+
+// ── Test 9: MULTI-USER — formerly-`%%users.sid%%` descriptor resolves per user
+
+#[test]
+fn scan_users_resolves_users_sid_placeholder_descriptor() {
+    // `fa_internet_explorer_main_noprotectedmodebanner` has `hive: None` and a
+    // key_path of `HKEY_USERS\%%users.sid%%\Software\Microsoft\Internet Explorer\
+    // Main\NoProtectedModeBanner`. Offline this resolves to *this user's* NTUSER
+    // hive at `Software\Microsoft\Internet Explorer\Main`, value
+    // `NoProtectedModeBanner`.
+    let ie_main = r"Software\Microsoft\Internet Explorer\Main";
+    let data = ntuser_root(TestHiveBuilder::new())
+        .add_key(r"Software\Microsoft")
+        .add_key(r"Software\Microsoft\Internet Explorer")
+        .add_key(ie_main)
+        .add_value(ie_main, "NoProtectedModeBanner", REG_DWORD, &1u32.to_le_bytes())
+        .build();
+
+    let user = UserHive {
+        identity: UserIdentity {
+            profile: Some("carol".to_string()),
+            sid: None,
+        },
+        hive: Hive::from_bytes(data).unwrap(),
+    };
+
+    let hits = scan_users(&[user]);
+    let hit = hits
+        .iter()
+        .find(|h| h.catalog_id == "fa_internet_explorer_main_noprotectedmodebanner")
+        .expect("`%%users.sid%%` descriptor must resolve against a user's NTUSER hive");
+    assert_eq!(hit.value_name.as_deref(), Some("NoProtectedModeBanner"));
+    assert_eq!(
+        hit.user.as_ref().and_then(|u| u.profile.as_deref()),
+        Some("carol")
+    );
+    assert_eq!(hit.key_path, ie_main);
+}
+
+// ── Test 10: machine scan() leaves the user field unset (no regression) ──────
+
+#[test]
+fn machine_scan_hits_have_no_user_attribution() {
+    let run = r"Microsoft\Windows\CurrentVersion\Run";
+    let data = software_root(TestHiveBuilder::new())
+        .add_key("Microsoft")
+        .add_key(run)
+        .add_value(run, "MyApp", REG_SZ, &utf16le(r"C:\app.exe"))
+        .build();
+    let hive = Hive::from_bytes(data).unwrap();
+
+    let hits = scan(&hive);
+    assert!(
+        hits.iter().all(|h| h.user.is_none()),
+        "machine-hive scan() must not attribute hits to any user"
+    );
 }
