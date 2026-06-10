@@ -12,7 +12,7 @@ mod common;
 
 use common::hive_builder::TestHiveBuilder;
 use winreg_artifacts::catalog_scan::{scan, scan_users, UserHive, UserIdentity};
-use winreg_artifacts::path_expansion::{expand, Binding, Segment, Wildcard};
+use winreg_artifacts::path_expansion::{expand, resolve_control_sets, Binding, Segment, Wildcard};
 use winreg_core::hive::Hive;
 
 fn utf16le(s: &str) -> Vec<u8> {
@@ -140,4 +140,93 @@ fn multi_user_hits_carry_user_binding() {
         hit.user.as_ref().and_then(|u| u.profile.as_deref()),
         Some("alice")
     );
+}
+
+// ── Build B: CurrentControlSet resolves via Select\Current, not hardcoded 001 ─
+
+/// Build a SYSTEM hive whose active control set is `Select\Current = current`.
+/// `ControlSet001` exists (needed for SYSTEM detection) and carries a *decoy*
+/// Lsa value; the real value lives under `ControlSet00{current}`.
+fn system_hive_with_select_current(current: u32, real_dll: &str, decoy_dll: &str) -> Vec<u8> {
+    let active = format!("ControlSet{current:03}");
+    let active_lsa = format!(r"{active}\Control\Lsa");
+    let cs001_lsa = r"ControlSet001\Control\Lsa";
+    let mut b = TestHiveBuilder::new()
+        // SYSTEM detection needs `Select` + `ControlSet001`.
+        .add_key("Select")
+        .add_value("Select", "Current", REG_DWORD, &current.to_le_bytes())
+        .add_key("ControlSet001")
+        .add_key(r"ControlSet001\Control")
+        .add_key(cs001_lsa)
+        // Decoy value under set 001 — surfaced only by the old hardcoded path.
+        .add_value(
+            cs001_lsa,
+            "Authentication Packages",
+            REG_SZ,
+            &utf16le(decoy_dll),
+        );
+    if active != "ControlSet001" {
+        b = b
+            .add_key(&active)
+            .add_key(&format!(r"{active}\Control"))
+            .add_key(&active_lsa);
+    }
+    b.add_value(
+        &active_lsa,
+        "Authentication Packages",
+        REG_SZ,
+        &utf16le(real_dll),
+    )
+    .build()
+}
+
+#[test]
+fn current_control_set_resolves_against_select_current() {
+    // Select\Current = 2 → the `lsa_auth_packages` descriptor (concrete
+    // `CurrentControlSet\Control\Lsa`) must resolve against ControlSet002, NOT
+    // the hardcoded ControlSet001. The 001 Lsa carries a decoy that must NOT win.
+    let data = system_hive_with_select_current(2, "evil.dll", "decoy_msv1_0.dll");
+    let hive = Hive::from_bytes(data).unwrap();
+
+    let hits = scan(&hive);
+    let hit = hits
+        .iter()
+        .find(|h| h.catalog_id == "lsa_auth_packages")
+        .expect("CurrentControlSet descriptor must resolve via Select\\Current");
+
+    // Resolved against the ACTIVE set (002), so the real DLL — never the decoy.
+    assert_eq!(hit.value_data, "evil.dll");
+    assert!(hit.key_path.starts_with(r"ControlSet002\Control\Lsa"));
+
+    // And it carries the {ControlSet, "ControlSet002"} binding for provenance.
+    let cs = hit
+        .bindings
+        .iter()
+        .find(|b| b.kind == Wildcard::ControlSet)
+        .expect("a CurrentControlSet hit must carry a ControlSet binding");
+    assert_eq!(cs.value, "ControlSet002");
+}
+
+#[test]
+fn resolve_control_sets_reads_select_current() {
+    // Direct unit-level proof the resolver reads Select\Current = 3.
+    let data = system_hive_with_select_current(3, "x.dll", "decoy.dll");
+    let hive = Hive::from_bytes(data).unwrap();
+    let root = hive.root_key().unwrap();
+    let resolver = resolve_control_sets(&root);
+    assert_eq!(resolver.sets, vec!["ControlSet003".to_string()]);
+}
+
+#[test]
+fn resolve_control_sets_falls_back_to_001_when_select_absent() {
+    // No Select key at all → degrade to ControlSet001, never panic.
+    let data = TestHiveBuilder::new()
+        .add_key("Select")
+        .add_key("ControlSet001")
+        .build();
+    let hive = Hive::from_bytes(data).unwrap();
+    let root = hive.root_key().unwrap();
+    // Select exists for detection but has no `Current` value → fallback.
+    let resolver = resolve_control_sets(&root);
+    assert_eq!(resolver.sets, vec!["ControlSet001".to_string()]);
 }

@@ -98,15 +98,17 @@ pub struct ControlSetResolver {
 /// `ControlSet001` — degrade, never panic. Reads are bounds-checked against the
 /// untrusted hive via winreg-core's value API.
 #[must_use]
-pub fn resolve_control_sets(root: &Key<'_>) -> ControlSetResolver {
-    let n = current_control_set_number(root).unwrap_or(1);
+pub fn resolve_control_sets(_root: &Key<'_>) -> ControlSetResolver {
+    // TODO(Build B): read Select\Current. Temporarily hardcoded to 001 to
+    // reproduce the pre-fix behavior for the RED commit.
     ControlSetResolver {
-        sets: vec![format!("ControlSet{n:03}")],
+        sets: vec!["ControlSet001".to_string()],
     }
 }
 
 /// Read the active control-set number from `Select\Current`, or `None` when the
 /// key/value is absent, unreadable, or zero.
+#[allow(dead_code)] // wired in by Build B GREEN.
 fn current_control_set_number(root: &Key<'_>) -> Option<u32> {
     let select = root.subkey("Select").ok()??;
     let current = select.value("Current").ok()??;
