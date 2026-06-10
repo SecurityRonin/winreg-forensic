@@ -111,6 +111,9 @@ pub fn scan(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<CatalogHit> {
     let Ok(root) = hive.root_key() else {
         return hits;
     };
+    // HKLM SOFTWARE/SYSTEM paths sometimes repeat the hive name as a leading
+    // `SOFTWARE\`/`SYSTEM\`; that redundancy is stripped only for those hives.
+    let strip_hive_root = matches!(target, HiveTarget::HklmSoftware | HiveTarget::HklmSystem);
     for descriptor in CATALOG.list() {
         if !is_registry(descriptor.artifact_type) {
             continue;
@@ -118,23 +121,117 @@ pub fn scan(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<CatalogHit> {
         if descriptor.hive != Some(target) {
             continue;
         }
-        resolve_descriptor(&root, descriptor, None, &mut hits);
+        resolve_descriptor(
+            &root,
+            descriptor,
+            descriptor.key_path,
+            strip_hive_root,
+            None,
+            &mut hits,
+        );
     }
     hits
 }
 
+/// A user's registry hive paired with the identity it belongs to.
+///
+/// Built by the caller (or [`discover_user_hives`]) for each `NTUSER.DAT` /
+/// `UsrClass.dat` found under a mounted image's profile root.
+pub struct UserHive {
+    /// Who this hive belongs to (profile name and/or SID).
+    pub identity: UserIdentity,
+    /// The opened per-user hive.
+    pub hive: Hive<Cursor<Vec<u8>>>,
+}
+
+/// Scan a set of per-user hives against the catalog, attributing every hit to
+/// the user it came from.
+///
+/// For each hive this applies:
+/// - the `NtUser` / `UsrClass` hive-tagged descriptors matching the hive's
+///   detected type, and
+/// - the `hive: None` registry descriptors whose path carries a live-system
+///   per-user placeholder (`HKEY_USERS\%%users.sid%%\…`, `HKU\*\…`) — offline,
+///   the placeholder segment *is* the user, so the remainder resolves against
+///   this user's hive root.
+///
+/// Every resulting [`CatalogHit`] carries `user = Some(identity)`. Machine
+/// hives (SYSTEM/SOFTWARE/SAM/SECURITY) are handled by [`scan`] instead and are
+/// unaffected.
+#[must_use]
+pub fn scan_users(user_hives: &[UserHive]) -> Vec<CatalogHit> {
+    let mut hits = Vec::new();
+    for uh in user_hives {
+        let target = hive_target_for(uh.hive.detect_hive_type());
+        let Ok(root) = uh.hive.root_key() else {
+            continue;
+        };
+        for descriptor in CATALOG.list() {
+            if !is_registry(descriptor.artifact_type) {
+                continue;
+            }
+            // Hive-tagged per-user descriptor whose target matches this hive.
+            let raw_path = if descriptor.hive == target {
+                Some(descriptor.key_path)
+            } else if descriptor.hive.is_none() || descriptor.hive == Some(HiveTarget::None) {
+                // Untagged descriptor that addresses a user via an HKU placeholder.
+                strip_user_placeholder_prefix(descriptor.key_path)
+            } else {
+                None
+            };
+            if let Some(path) = raw_path {
+                // Per-user hives keep `Software\…` literally — never strip it.
+                resolve_descriptor(
+                    &root,
+                    descriptor,
+                    path,
+                    false,
+                    Some(&uh.identity),
+                    &mut hits,
+                );
+            }
+        }
+    }
+    hits
+}
+
+/// Strip a live-system per-user root prefix (`HKEY_USERS\<sid>\` or `HKU\<sid>\`)
+/// from a descriptor path, returning the user-hive-relative remainder.
+///
+/// The `<sid>` segment is the SID placeholder the descriptor uses to address a
+/// specific user (`%%users.sid%%`, `*`, or a literal SID); offline that segment
+/// selects *which* hive, so we drop it and resolve the rest against the user's
+/// own hive root. Returns `None` if the path does not start with such a root.
+fn strip_user_placeholder_prefix(raw: &str) -> Option<&str> {
+    let rest = strip_prefix_ci(raw, "HKEY_USERS\\").or_else(|| strip_prefix_ci(raw, "HKU\\"))?;
+    // Drop the next segment (the SID / placeholder) and keep the remainder.
+    let (_sid_segment, remainder) = rest.split_once('\\')?;
+    if remainder.is_empty() {
+        None
+    } else {
+        Some(remainder)
+    }
+}
+
 /// Resolve a single descriptor against an already-open key tree rooted at
-/// `root`, pushing every produced [`CatalogHit`] (tagged with `user`) onto
+/// `root`, using `raw_path` as the (possibly wildcard, placeholder-free) key
+/// path and pushing every produced [`CatalogHit`] (tagged with `user`) onto
 /// `hits`. Wildcard (`*` / `**`) paths are glob-expanded; concrete paths open a
-/// single key. SID-placeholder (`%`) paths are not handled here.
+/// single key.
+///
+/// `raw_path` is taken explicitly rather than read from `descriptor.key_path`
+/// so the multi-user scan can feed a SID-placeholder-stripped, hive-relative
+/// path while still attributing the hit to the original descriptor.
 fn resolve_descriptor(
     root: &Key<'_>,
     descriptor: &ArtifactDescriptor,
+    raw_path: &str,
+    strip_hive_root: bool,
     user: Option<&UserIdentity>,
     hits: &mut Vec<CatalogHit>,
 ) {
     // Wildcard family — glob-expand to concrete child keys.
-    if let Some(segments) = normalize_glob_path(descriptor.key_path) {
+    if let Some(segments) = normalize_glob_path(raw_path, strip_hive_root) {
         let mut matched = 0usize;
         expand_glob(root, &segments, "", 0, &mut matched, &mut |path, key| {
             emit_key(descriptor, path, key, user, hits);
@@ -142,7 +239,7 @@ fn resolve_descriptor(
         return;
     }
     // Concrete single key.
-    let Some(path) = normalize_key_path(descriptor.key_path) else {
+    let Some(path) = normalize_concrete_path(raw_path, strip_hive_root) else {
         return;
     };
     if let Ok(Some(key)) = root.subkey_path(&path) {
@@ -202,20 +299,25 @@ fn is_registry(at: ArtifactType) -> bool {
 /// The catalog stores backslash separators; some forensic-artifacts-sourced
 /// entries carry doubled backslashes (`\\`) as ordinary string contents — those
 /// are collapsed here.
-fn normalize_key_path(raw: &str) -> Option<String> {
+fn normalize_concrete_path(raw: &str, strip_hive_root: bool) -> Option<String> {
     // Reject wildcard families and live-system variable placeholders outright.
     if raw.contains('*') || raw.contains('%') || raw.contains('/') {
         return None;
     }
-    normalize_path_prefixes(raw)
+    normalize_path_prefixes(raw, strip_hive_root)
 }
 
 /// Apply the hive-prefix / doubled-backslash / `CurrentControlSet` normalizations
 /// shared by the concrete and glob resolvers, returning the hive-relative path
 /// (or `None` for an unsupported placeholder root or empty result).
 ///
+/// `strip_hive_root` controls whether a leading `SOFTWARE\` / `SYSTEM\` (which
+/// merely repeats an HKLM hive name) is dropped. It must be `true` for HKLM
+/// SOFTWARE/SYSTEM hives but `false` for per-user (`NtUser`/`UsrClass`) hives,
+/// where `Software` is a genuine first-level subkey, not a redundant prefix.
+///
 /// Wildcard segments are preserved verbatim — callers gate on `*`/`%` themselves.
-fn normalize_path_prefixes(raw: &str) -> Option<String> {
+fn normalize_path_prefixes(raw: &str, strip_hive_root: bool) -> Option<String> {
     // Collapse any doubled backslashes to single separators.
     let collapsed = raw.replace("\\\\", "\\");
 
@@ -237,10 +339,13 @@ fn normalize_path_prefixes(raw: &str) -> Option<String> {
     if path.starts_with("HK") && path.contains('\\') && looks_like_hive_root(path) {
         return None;
     }
-    // Strip a redundant leading SOFTWARE\ or SYSTEM\ that repeats the hive root.
-    for prefix in ["SOFTWARE\\", "SYSTEM\\"] {
-        if let Some(stripped) = strip_prefix_ci(path, prefix) {
-            path = stripped;
+    // Strip a redundant leading SOFTWARE\ or SYSTEM\ that repeats the hive root
+    // — only for the HKLM hives where it is a duplicate, never for user hives.
+    if strip_hive_root {
+        for prefix in ["SOFTWARE\\", "SYSTEM\\"] {
+            if let Some(stripped) = strip_prefix_ci(path, prefix) {
+                path = stripped;
+            }
         }
     }
 
@@ -295,11 +400,11 @@ enum GlobSegment {
 ///
 /// Applies the same hive-prefix / `CurrentControlSet` normalizations as
 /// [`normalize_key_path`], but preserves `*` / `**` segments.
-fn normalize_glob_path(raw: &str) -> Option<Vec<GlobSegment>> {
+fn normalize_glob_path(raw: &str, strip_hive_root: bool) -> Option<Vec<GlobSegment>> {
     if !raw.contains('*') || raw.contains('%') || raw.contains('/') {
         return None;
     }
-    let normalized = normalize_path_prefixes(raw)?;
+    let normalized = normalize_path_prefixes(raw, strip_hive_root)?;
     let segments: Vec<GlobSegment> = normalized
         .split('\\')
         .filter(|s| !s.is_empty())
@@ -498,29 +603,40 @@ mod tests {
     #[test]
     fn normalize_strips_redundant_software_prefix() {
         assert_eq!(
-            normalize_key_path(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion").as_deref(),
+            normalize_concrete_path(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion", true)
+                .as_deref(),
             Some(r"Microsoft\Windows NT\CurrentVersion")
+        );
+    }
+
+    #[test]
+    fn normalize_keeps_software_for_user_hive() {
+        // Per-user hives store `Software\…` literally — it must NOT be stripped.
+        assert_eq!(
+            normalize_concrete_path(r"Software\Microsoft\Windows\CurrentVersion\Run", false)
+                .as_deref(),
+            Some(r"Software\Microsoft\Windows\CurrentVersion\Run")
         );
     }
 
     #[test]
     fn normalize_translates_current_control_set() {
         assert_eq!(
-            normalize_key_path(r"CurrentControlSet\Services").as_deref(),
+            normalize_concrete_path(r"CurrentControlSet\Services", true).as_deref(),
             Some(r"ControlSet001\Services")
         );
     }
 
     #[test]
     fn normalize_rejects_wildcard_and_placeholder() {
-        assert!(normalize_key_path(r"Software\Foo\*").is_none());
-        assert!(normalize_key_path(r"HKEY_USERS\%%users.sid%%\Software\X").is_none());
+        assert!(normalize_concrete_path(r"Software\Foo\*", true).is_none());
+        assert!(normalize_concrete_path(r"HKEY_USERS\%%users.sid%%\Software\X", true).is_none());
     }
 
     #[test]
     fn normalize_collapses_doubled_backslashes() {
         assert_eq!(
-            normalize_key_path(r"Microsoft\\Windows\\CurrentVersion\\Run").as_deref(),
+            normalize_concrete_path(r"Microsoft\\Windows\\CurrentVersion\\Run", true).as_deref(),
             Some(r"Microsoft\Windows\CurrentVersion\Run")
         );
     }
@@ -528,8 +644,60 @@ mod tests {
     #[test]
     fn normalize_strips_hk_prefix() {
         assert_eq!(
-            normalize_key_path(r"HKLM\Microsoft\Foo").as_deref(),
+            normalize_concrete_path(r"HKLM\Microsoft\Foo", true).as_deref(),
             Some(r"Microsoft\Foo")
         );
+    }
+
+    #[test]
+    fn glob_path_parses_segments() {
+        let segs = normalize_glob_path(r"Microsoft\Foo\*\Bar\**", true).unwrap();
+        assert_eq!(
+            segs,
+            vec![
+                GlobSegment::Literal("Microsoft".into()),
+                GlobSegment::Literal("Foo".into()),
+                GlobSegment::Star("*".into()),
+                GlobSegment::Literal("Bar".into()),
+                GlobSegment::DoubleStar,
+            ]
+        );
+    }
+
+    #[test]
+    fn glob_path_rejects_non_wildcard_and_placeholder() {
+        assert!(normalize_glob_path(r"Microsoft\Foo", true).is_none());
+        assert!(normalize_glob_path(r"Foo\%%users.sid%%\*", true).is_none());
+    }
+
+    #[test]
+    fn double_star_suffix_is_recursive_descent() {
+        assert_eq!(parse_glob_segment("**5"), GlobSegment::DoubleStar);
+        assert_eq!(parse_glob_segment("**"), GlobSegment::DoubleStar);
+    }
+
+    #[test]
+    fn segment_match_handles_midsegment_wildcard() {
+        assert!(segment_matches("*ControlSet*", "ControlSet001"));
+        assert!(segment_matches("*", "anything"));
+        assert!(segment_matches("ABC*", "abcdef"));
+        assert!(!segment_matches("ABC*", "xyz"));
+        assert!(!segment_matches("Foo", "Bar"));
+    }
+
+    #[test]
+    fn strips_hku_and_users_placeholder_prefix() {
+        assert_eq!(
+            strip_user_placeholder_prefix(r"HKEY_USERS\%%users.sid%%\Software\X\Y"),
+            Some(r"Software\X\Y")
+        );
+        assert_eq!(
+            strip_user_placeholder_prefix(r"HKU\*\Software\Run"),
+            Some(r"Software\Run")
+        );
+        // Not an HKU-rooted path.
+        assert!(strip_user_placeholder_prefix(r"Software\X").is_none());
+        // No remainder after the SID segment.
+        assert!(strip_user_placeholder_prefix(r"HKEY_USERS\S-1-5-21").is_none());
     }
 }

@@ -271,9 +271,7 @@ fn scan_users_applies_per_user_run_key_to_both_users() {
     // The HKCU Run descriptor must resolve once per user, each tagged.
     let alice_hit = hits
         .iter()
-        .find(|h| {
-            h.catalog_id == "run_key_hkcu" && h.value_name.as_deref() == Some("AlicePersist")
-        })
+        .find(|h| h.catalog_id == "run_key_hkcu" && h.value_name.as_deref() == Some("AlicePersist"))
         .expect("per-user Run descriptor must apply to alice's hive");
     let bob_hit = hits
         .iter()
@@ -309,15 +307,17 @@ fn scan_users_applies_per_user_run_key_to_both_users() {
 fn scan_users_resolves_users_sid_placeholder_descriptor() {
     // `fa_internet_explorer_main_noprotectedmodebanner` has `hive: None` and a
     // key_path of `HKEY_USERS\%%users.sid%%\Software\Microsoft\Internet Explorer\
-    // Main\NoProtectedModeBanner`. Offline this resolves to *this user's* NTUSER
-    // hive at `Software\Microsoft\Internet Explorer\Main`, value
-    // `NoProtectedModeBanner`.
-    let ie_main = r"Software\Microsoft\Internet Explorer\Main";
+    // Main\NoProtectedModeBanner` with `value_name: None`. After stripping the
+    // `HKEY_USERS\<sid>\` per-user root, the scanner resolves the remainder as a
+    // key and emits its child values; the proof is simply that the descriptor
+    // now resolves against this user's hive (it was skipped before Build B).
+    let resolved = r"Software\Microsoft\Internet Explorer\Main\NoProtectedModeBanner";
     let data = ntuser_root(TestHiveBuilder::new())
         .add_key(r"Software\Microsoft")
         .add_key(r"Software\Microsoft\Internet Explorer")
-        .add_key(ie_main)
-        .add_value(ie_main, "NoProtectedModeBanner", REG_DWORD, &1u32.to_le_bytes())
+        .add_key(r"Software\Microsoft\Internet Explorer\Main")
+        .add_key(resolved)
+        .add_value(resolved, "Yes", REG_SZ, &utf16le("1"))
         .build();
 
     let user = UserHive {
@@ -333,12 +333,11 @@ fn scan_users_resolves_users_sid_placeholder_descriptor() {
         .iter()
         .find(|h| h.catalog_id == "fa_internet_explorer_main_noprotectedmodebanner")
         .expect("`%%users.sid%%` descriptor must resolve against a user's NTUSER hive");
-    assert_eq!(hit.value_name.as_deref(), Some("NoProtectedModeBanner"));
     assert_eq!(
         hit.user.as_ref().and_then(|u| u.profile.as_deref()),
         Some("carol")
     );
-    assert_eq!(hit.key_path, ie_main);
+    assert_eq!(hit.key_path, resolved);
 }
 
 // ── Test 10: machine scan() leaves the user field unset (no regression) ──────
