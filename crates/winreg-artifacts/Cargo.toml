@@ -9,6 +9,7 @@ license.workspace = true
 [dependencies]
 winreg-core.workspace = true
 winreg-format.workspace = true
+forensicnomicon.workspace = true
 serde.workspace = true
 chrono.workspace = true
 
