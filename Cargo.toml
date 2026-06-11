@@ -46,7 +46,7 @@ clap = { version = "4", features = ["derive"] }
 tempfile = "3"
 
 # Knowledge leaf — registry-artifact catalog (which keys, what they mean).
-forensicnomicon = { path = "../forensicnomicon" }
+forensicnomicon = "0.4"
 
 # Internal
 winreg-format = { path = "crates/winreg-format" }
