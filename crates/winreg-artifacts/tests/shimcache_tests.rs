@@ -274,6 +274,53 @@ fn win10_appcompat_blob(entries: &[(&str, u64)]) -> Vec<u8> {
     blob
 }
 
+/// Build a Server-2019 / Win10-1809 AppCompatCache blob: a **128-byte** header
+/// whose first dword is `0x00000000` (not the 0x30/0x34 header-size sentinel),
+/// followed by the same `"10ts"` entries. Observed on the Case-001 DC01 SYSTEM
+/// hive — its `10ts` entries begin at offset 128.
+fn win10_128hdr_appcompat_blob(entries: &[(&str, u64)]) -> Vec<u8> {
+    let mut blob = vec![0u8; 128]; // 128-byte header, first dword 0x00000000
+    for (path, filetime) in entries {
+        let path_utf16: Vec<u8> = path.encode_utf16().flat_map(u16::to_le_bytes).collect();
+        let mut body = Vec::new();
+        body.extend_from_slice(&(path_utf16.len() as u16).to_le_bytes());
+        body.extend_from_slice(&path_utf16);
+        body.extend_from_slice(&filetime.to_le_bytes());
+        body.extend_from_slice(&0u32.to_le_bytes()); // data_size = 0
+        blob.extend_from_slice(b"10ts");
+        blob.extend_from_slice(&0u32.to_le_bytes()); // unknown
+        blob.extend_from_slice(&(body.len() as u32).to_le_bytes()); // ce_data_size
+        blob.extend_from_slice(&body);
+    }
+    blob
+}
+
+#[test]
+fn parse_decodes_128byte_header_variant() {
+    // Server 2019 / Win10 1809: 128-byte header, first dword 0x00000000, "10ts"
+    // entries at offset 128. The decoder must locate entries by the "10ts"
+    // marker, not by a hardcoded header-size allow-list, or it sentinels the
+    // primary-host (DC01) execution evidence.
+    let blob = win10_128hdr_appcompat_blob(&[
+        ("C:\\Windows\\System32\\cmd.exe", 132_449_604_494_103_203),
+        ("C:\\Windows\\System32\\coreupdater.exe", 132_449_604_494_103_203),
+    ]);
+    let key = "ControlSet001\\Control\\Session Manager\\AppCompatCache";
+    let data = TestHiveBuilder::new()
+        .add_key(key)
+        .add_value(key, APPCOMPAT_VALUE, REG_BINARY, &blob)
+        .build();
+    let hive = Hive::from_bytes(data).unwrap();
+    let entries = parse(&hive);
+
+    assert_eq!(
+        entries.len(),
+        2,
+        "128-byte-header variant must decode both entries, not a sentinel"
+    );
+    assert!(entries[1].path.to_uppercase().contains("COREUPDATER.EXE"));
+}
+
 #[test]
 fn parse_decodes_real_win10_appcompat_entries() {
     // FILETIME 2020-09-19 (Case-001 era).
