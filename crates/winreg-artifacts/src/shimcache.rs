@@ -32,7 +32,9 @@ pub struct ShimcacheEntry {
 // Key / value paths
 // ---------------------------------------------------------------------------
 
-const APPCOMPAT_KEY: &str = "CurrentControlSet\\Control\\Session Manager\\AppCompatCache";
+/// Key path suffix below the ControlSet (`CurrentControlSet` on live hives,
+/// `ControlSet00N` on offline ones).
+const APPCOMPAT_SUFFIX: &str = "Control\\Session Manager\\AppCompatCache";
 const APPCOMPAT_VALUE: &str = "AppCompatCache";
 
 // ---------------------------------------------------------------------------
@@ -51,17 +53,38 @@ const WIN8_HEADER_SIG: u8 = 0x80;
 
 /// Extract ShimCache entries from a SYSTEM hive.
 ///
-/// Navigates to `CurrentControlSet\Control\Session Manager\AppCompatCache`,
-/// reads the `AppCompatCache` REG_BINARY value, and attempts to parse entries.
+/// Resolves the active ControlSet, then reads
+/// `<ControlSet>\Control\Session Manager\AppCompatCache`. Live hives expose a
+/// `CurrentControlSet` symlink; **offline** hives do not — they carry
+/// `ControlSet00N` selected by `Select\Current`, so we resolve that.
 ///
 /// Returns an empty `Vec` if the key or value is absent.
 /// Returns a single sentinel entry (empty path) if the blob exists but the
 /// format is unrecognised.
 pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<ShimcacheEntry> {
-    // Navigate to the correct key.
-    let key = match hive.open_key(APPCOMPAT_KEY) {
-        Ok(Some(k)) => k,
-        _ => return Vec::new(),
+    // `Select\Current` (REG_DWORD) names the active set on an offline hive;
+    // default to set 1 when the Select key is absent.
+    let current = hive
+        .open_key("Select")
+        .ok()
+        .flatten()
+        .and_then(|sel| sel.value("Current").ok().flatten())
+        .and_then(|v| v.raw_data().ok())
+        .filter(|d| d.len() >= 4)
+        .map_or(1u32, |d| u32::from_le_bytes([d[0], d[1], d[2], d[3]]));
+
+    // Try the live symlink, the Select-resolved set, then ControlSet001.
+    let candidates = [
+        format!("CurrentControlSet\\{APPCOMPAT_SUFFIX}"),
+        format!("ControlSet{current:03}\\{APPCOMPAT_SUFFIX}"),
+        format!("ControlSet001\\{APPCOMPAT_SUFFIX}"),
+    ];
+    let key = match candidates
+        .iter()
+        .find_map(|p| hive.open_key(p).ok().flatten())
+    {
+        Some(k) => k,
+        None => return Vec::new(),
     };
 
     // Read the REG_BINARY value.
