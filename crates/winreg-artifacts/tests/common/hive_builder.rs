@@ -14,6 +14,12 @@ use std::collections::BTreeMap;
 use winreg_format::cells::lh_hash;
 use winreg_format::header::BaseBlock;
 
+/// Values larger than this (16344 B) are stored as a `db` big-data record:
+/// a `db` cell → a segment-list cell → N segment data cells.
+const BIG_DATA_THRESHOLD: usize = 16344;
+/// Each big-data segment holds at most this many bytes.
+const BIG_DATA_SEGMENT_SIZE: usize = 16344;
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -79,13 +85,30 @@ impl TestHiveBuilder {
         let mut vk_map: BTreeMap<String, Vec<CellId>> = BTreeMap::new();
         let mut values_list_ids: BTreeMap<String, CellId> = BTreeMap::new();
         let mut data_cell_ids: BTreeMap<CellId, CellId> = BTreeMap::new();
+        // (db_cell, segment_list_cell, segment_cells) for big-data values.
+        let mut big_data_links: Vec<(CellId, CellId, Vec<CellId>)> = Vec::new();
 
         for (key_path, vals) in &tree.values {
             let mut vk_ids = Vec::new();
             for v in vals {
                 let vk_id = alloc.alloc_vk(v.name.as_bytes(), v.data_type, v.data.len() as u32);
-                // Non-resident data (> 4 bytes): allocate a data cell
-                if v.data.len() > 4 {
+                // Big data (> 16344 B): a `db` cell → segment-list → N segments.
+                if v.data.len() > BIG_DATA_THRESHOLD {
+                    let seg_ids: Vec<CellId> = v
+                        .data
+                        .chunks(BIG_DATA_SEGMENT_SIZE)
+                        .map(|c| alloc.alloc_data(c))
+                        .collect();
+                    let list_id = alloc.alloc(vec![0u8; seg_ids.len() * 4]);
+                    let mut db_body = Vec::with_capacity(8);
+                    db_body.extend_from_slice(b"db");
+                    db_body.extend_from_slice(&(seg_ids.len() as u16).to_le_bytes());
+                    db_body.extend_from_slice(&0u32.to_le_bytes()); // segment_list_offset (placeholder)
+                    let db_id = alloc.alloc(db_body);
+                    data_cell_ids.insert(vk_id, db_id);
+                    big_data_links.push((db_id, list_id, seg_ids));
+                } else if v.data.len() > 4 {
+                    // Non-resident data: a single data cell.
                     let data_id = alloc.alloc_data(&v.data);
                     data_cell_ids.insert(vk_id, data_id);
                 }
@@ -232,6 +255,18 @@ impl TestHiveBuilder {
             // data_offset is at VK body offset 6..10 (after sig(2) + name_len(2) + data_size(4))
             // In cell: [size(4)][sig(2)][name_len(2)][data_size_raw(4)][data_offset_raw(4)]
             write_u32(&mut buf, vk_file + 4 + VK_DATA_OFFSET_OFFSET, data_off);
+        }
+
+        // Link big-data records: db cell → segment-list cell → segment cells.
+        for (db_id, list_id, seg_ids) in &big_data_links {
+            // db body: "db"(2) | segment_count(2) | segment_list_offset(4)
+            let db_body = hbin_file_start + hbin_data_start + alloc.cells[db_id.0].offset + 4;
+            write_u32(&mut buf, db_body + 4, cell_offset(*list_id));
+            // segment-list body: u32 cell offset per segment.
+            let list_body = hbin_file_start + hbin_data_start + alloc.cells[list_id.0].offset + 4;
+            for (i, seg_id) in seg_ids.iter().enumerate() {
+                write_u32(&mut buf, list_body + i * 4, cell_offset(*seg_id));
+            }
         }
 
         // Write resident value data inline
