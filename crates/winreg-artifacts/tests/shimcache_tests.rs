@@ -214,3 +214,35 @@ fn parse_key_path_is_correct() {
         "wrong key path should yield no entries"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Test: offline-hive ControlSet resolution (real-world quirk)
+// ---------------------------------------------------------------------------
+
+/// REG_DWORD = 4
+const REG_DWORD: u32 = 4;
+
+/// Real OFFLINE SYSTEM hives have NO `CurrentControlSet` key — that is a volatile
+/// runtime symlink the kernel materialises. Offline they carry `ControlSet001`
+/// (and maybe `002`) plus a `Select` key whose `Current` REG_DWORD names the
+/// active set. The decoder must resolve AppCompatCache through `Select\Current`,
+/// not the absent `CurrentControlSet`. (This is why shimcache returned 0 on the
+/// Case-001 SYSTEM hive while the synthetic `CurrentControlSet` tests passed.)
+#[test]
+fn parse_resolves_controlset_from_select_on_offline_hive() {
+    let blob = unknown_signature_blob();
+    let key = "ControlSet001\\Control\\Session Manager\\AppCompatCache";
+    let data = TestHiveBuilder::new()
+        .add_key(key)
+        .add_value(key, APPCOMPAT_VALUE, REG_BINARY, &blob)
+        .add_key("Select")
+        .add_value("Select", "Current", REG_DWORD, &1u32.to_le_bytes())
+        .build();
+    let hive = Hive::from_bytes(data).unwrap();
+    let entries = parse(&hive);
+    assert!(
+        !entries.is_empty(),
+        "must resolve AppCompatCache via Select\\Current → ControlSet001 on an \
+         offline hive that has no CurrentControlSet"
+    );
+}
