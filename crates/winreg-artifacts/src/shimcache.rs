@@ -11,6 +11,12 @@ use std::io::Cursor;
 use winreg_core::hive::Hive;
 use winreg_core::key::filetime_to_datetime;
 
+// AppCompatCache header signatures + entry-body field offsets are facts about
+// the format and live in the KNOWLEDGE leaf. See `forensicnomicon::appcompatcache`
+// for the per-build table and the full authoritative-source list (Mandiant
+// whitepaper, Eric Zimmerman's AppCompatCacheParser, libyal winreg-kb).
+use forensicnomicon::appcompatcache as fmt;
+
 // ---------------------------------------------------------------------------
 // Output type
 // ---------------------------------------------------------------------------
@@ -41,11 +47,23 @@ const APPCOMPAT_VALUE: &str = "AppCompatCache";
 // Format signatures
 // ---------------------------------------------------------------------------
 
-/// Windows 10 entry signature: "10ts" as u32 LE = 0x73743031.
-const WIN10_ENTRY_SIG: u32 = 0x7374_3031;
-
-/// Windows 8 / Server 2012 header signature: 0x80 at byte 0.
+/// Windows 8 / Server 2012 legacy header first byte (`0x80`), per libyal
+/// winreg-kb. Some 8.x hives carry this; others (Case-001 DC01) open with a
+/// `0x00000000` first dword, so the format is gated by the entry marker at
+/// `forensicnomicon::appcompatcache::WIN8X_ENTRY_STREAM_OFFSET`, not this byte.
 const WIN8_HEADER_SIG: u8 = 0x80;
+
+/// Entry-body layout for the `"00ts"`/`"10ts"` cache-entry stream. The entry
+/// *framing* (`sig(4) | unknown(4) | ce_data_size(4)`) is identical across
+/// families; only the body differs (see `forensicnomicon::appcompatcache`).
+#[derive(Clone, Copy)]
+enum EntryBodyLayout {
+    /// Win10 (0x30/0x34 header): FILETIME immediately follows the path.
+    Win10,
+    /// Win8.0/8.1 & Server 2012/2012 R2: `package_len(2) | package |
+    /// insertion_flags(4) | shim_flags(4)` precede the FILETIME.
+    Win8x,
+}
 
 // ---------------------------------------------------------------------------
 // Public parse function
@@ -105,27 +123,42 @@ pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<ShimcacheEntry> {
 
     let sig = u32::from_le_bytes([blob[0], blob[1], blob[2], blob[3]]);
 
-    // Win10 (1507 = 0x30, 1607+ = 0x34): the blob opens with a small header whose
-    // first u32 is the header size; the `"10ts"` entries follow it.
-    if sig == 0x30 || sig == 0x34 {
-        return parse_win10_entries(&blob, sig as usize, raw_size);
+    // Win10 (1507 = 0x30, 1607+ = 0x34): the first dword is the header length;
+    // the `"10ts"` entries follow it and carry the FILETIME right after the path.
+    if sig == fmt::WIN10_1507_HEADER_LEN || sig == fmt::WIN10_1607_HEADER_LEN {
+        return parse_win10_entries(&blob, sig as usize, raw_size, b"10ts", EntryBodyLayout::Win10);
     }
     // Header-less `"10ts"` stream (some synthetic/edge captures put entries at 0).
-    if sig == WIN10_ENTRY_SIG {
-        return parse_win10_entries(&blob, 0, raw_size);
+    if sig == fmt::ENTRY_MARKER_WIN81_WIN10_U32 {
+        return parse_win10_entries(&blob, 0, raw_size, b"10ts", EntryBodyLayout::Win10);
     }
-    // Win8 0x80 header (legacy fixed 128-byte-header parser).
+    // Win8.0/8.1 & Server 2012/2012 R2: a 128-byte header followed by entries
+    // tagged "00ts" (8.0/2012) or "10ts" (8.1/2012 R2). The header's first dword
+    // varies in the wild (0x80 per libyal; 0x00000000 on the Case-001 DC01 Server
+    // 2012 R2 hive), so classify by the marker at offset 128 exactly as Eric
+    // Zimmerman's AppCompatCacheParser does — independent of the first dword. The
+    // Win8.x body carries package_len + insertion/shim flags BEFORE the FILETIME,
+    // so it must be decoded with the Win8x layout (Win10 reads the wrong offset).
+    if blob.len() >= fmt::WIN8X_ENTRY_STREAM_OFFSET + 4 {
+        let marker = &blob[fmt::WIN8X_ENTRY_STREAM_OFFSET..fmt::WIN8X_ENTRY_STREAM_OFFSET + 4];
+        if marker == fmt::ENTRY_MARKER_WIN80 || marker == fmt::ENTRY_MARKER_WIN81_WIN10 {
+            return parse_win10_entries(
+                &blob,
+                fmt::WIN8X_ENTRY_STREAM_OFFSET,
+                raw_size,
+                marker,
+                EntryBodyLayout::Win8x,
+            );
+        }
+    }
+    // Win8 0x80 header without a marker at offset 128 (legacy fixed parser).
     if blob[0] == WIN8_HEADER_SIG {
         return parse_win10(&blob, raw_size);
     }
-    // Header size varies across builds — 0x30/0x34 small headers above, plus a
-    // 128-byte header whose first dword is 0x00000000 on Server 2019 / Win10
-    // 1809 (observed on the Case-001 DC01 hive). Rather than enumerate every
-    // header constant, fall back to the structural invariant: cache entries are
-    // "10ts"-tagged, so locate the first marker and parse the stream from there.
-    // This decodes any header size by construction.
-    if let Some(pos) = blob.windows(4).position(|w| w == b"10ts") {
-        return parse_win10_entries(&blob, pos, raw_size);
+    // Last resort: locate the first "10ts" marker anywhere and parse from there
+    // with the Win10 body layout (headerless/synthetic captures).
+    if let Some(pos) = blob.windows(4).position(|w| w == fmt::ENTRY_MARKER_WIN81_WIN10) {
+        return parse_win10_entries(&blob, pos, raw_size, b"10ts", EntryBodyLayout::Win10);
     }
     // No "10ts" entries anywhere — genuinely unrecognised. Return a sentinel so
     // the caller still records that a blob was present.
@@ -142,26 +175,37 @@ pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<ShimcacheEntry> {
 /// Each entry: `"10ts" | unknown(4) | ce_data_size(4) | body[ce_data_size]`,
 /// where the body is `path_size(2) | path(UTF-16LE) | FILETIME(8) | data_size(4)
 /// | data`.
-fn parse_win10_entries(blob: &[u8], start: usize, raw_size: usize) -> Vec<ShimcacheEntry> {
+/// Parse a `"00ts"`/`"10ts"` entry stream beginning at `start`, tagged
+/// `entry_sig`, with bodies decoded per `layout`.
+///
+/// Each entry: `sig(4) | unknown(4) | ce_data_size(4) | body[ce_data_size]`
+/// (`forensicnomicon::appcompatcache::ENTRY_FRAMING_LEN`).
+fn parse_win10_entries(
+    blob: &[u8],
+    start: usize,
+    raw_size: usize,
+    entry_sig: &[u8],
+    layout: EntryBodyLayout,
+) -> Vec<ShimcacheEntry> {
     let mut entries = Vec::new();
     let mut offset = start;
     let mut entry_index = 0;
 
-    while offset + 12 <= blob.len() {
-        if &blob[offset..offset + 4] != b"10ts" {
+    while offset + fmt::ENTRY_FRAMING_LEN <= blob.len() {
+        if &blob[offset..offset + 4] != entry_sig {
             break;
         }
         // offset+4: unknown (4 bytes), then the cache-entry data size.
         let ce_data_size =
             u32::from_le_bytes([blob[offset + 8], blob[offset + 9], blob[offset + 10], blob[offset + 11]])
                 as usize;
-        let body_start = offset + 12;
+        let body_start = offset + fmt::ENTRY_FRAMING_LEN;
         let body_end = match body_start.checked_add(ce_data_size) {
             Some(e) if e <= blob.len() => e,
             _ => break,
         };
 
-        let (path, last_modified) = decode_win10_entry_body(&blob[body_start..body_end]);
+        let (path, last_modified) = decode_win10_entry_body(&blob[body_start..body_end], layout);
         entries.push(ShimcacheEntry {
             path,
             last_modified,
@@ -176,8 +220,16 @@ fn parse_win10_entries(blob: &[u8], start: usize, raw_size: usize) -> Vec<Shimca
     entries
 }
 
-/// Decode a Win10 entry body: `path_size(2) | path(UTF-16LE) | FILETIME(8) | …`.
-fn decode_win10_entry_body(body: &[u8]) -> (String, Option<String>) {
+/// Decode a `"00ts"`/`"10ts"` entry body.
+///
+/// `Win10`: `path_size(2) | path(UTF-16LE) | FILETIME(8) | data_size(4) | data`
+/// — FILETIME at `path_end` (`WIN10_PATH_TO_FILETIME` = 0).
+///
+/// `Win8x`: `path_size(2) | path | package_len(2) | package | insertion_flags(4)
+/// | shim_flags(4) | FILETIME(8) | data_size(4) | data` — FILETIME at
+/// `path_end + 2 + package_len + WIN8X_PATH_TO_FILETIME_FIXED`. Offsets and the
+/// authoritative sources live in `forensicnomicon::appcompatcache`.
+fn decode_win10_entry_body(body: &[u8], layout: EntryBodyLayout) -> (String, Option<String>) {
     if body.len() < 2 {
         return (String::new(), None);
     }
@@ -188,12 +240,25 @@ fn decode_win10_entry_body(body: &[u8]) -> (String, Option<String>) {
     } else {
         String::new()
     };
-    let last_modified = if path_end + 8 <= body.len() {
-        let ft = winreg_core::bytes::le_u64(body, path_end);
-        filetime_to_datetime(ft).map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())
-    } else {
-        None
+    let ft_offset = match layout {
+        EntryBodyLayout::Win10 => path_end.checked_add(fmt::WIN10_PATH_TO_FILETIME),
+        EntryBodyLayout::Win8x => {
+            // Read package_len(u16) at path_end, then skip it + the package data
+            // + insertion/shim flags to reach the FILETIME.
+            if path_end + 2 <= body.len() {
+                let package_len = u16::from_le_bytes([body[path_end], body[path_end + 1]]) as usize;
+                path_end.checked_add(2 + package_len + fmt::WIN8X_PATH_TO_FILETIME_FIXED)
+            } else {
+                None
+            }
+        }
     };
+    let last_modified = ft_offset
+        .filter(|&o| o.checked_add(8).is_some_and(|end| end <= body.len()))
+        .and_then(|o| {
+            let ft = winreg_core::bytes::le_u64(body, o);
+            filetime_to_datetime(ft).map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+        });
     (path, last_modified)
 }
 
@@ -250,7 +315,7 @@ fn parse_win10(blob: &[u8], raw_size: usize) -> Vec<ShimcacheEntry> {
             blob[offset + 3],
         ]);
 
-        if entry_sig != WIN10_ENTRY_SIG {
+        if entry_sig != fmt::ENTRY_MARKER_WIN81_WIN10_U32 {
             break;
         }
 
