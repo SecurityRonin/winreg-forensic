@@ -274,20 +274,27 @@ fn win10_appcompat_blob(entries: &[(&str, u64)]) -> Vec<u8> {
     blob
 }
 
-/// Build a Server-2019 / Win10-1809 AppCompatCache blob: a **128-byte** header
-/// whose first dword is `0x00000000` (not the 0x30/0x34 header-size sentinel),
-/// followed by the same `"10ts"` entries. Observed on the Case-001 DC01 SYSTEM
-/// hive — its `10ts` entries begin at offset 128.
-fn win10_128hdr_appcompat_blob(entries: &[(&str, u64)]) -> Vec<u8> {
+/// Build a Windows 8.1 / Server 2012 R2 AppCompatCache blob: a 128-byte header
+/// (first dword `0x00000000`, observed on the Case-001 DC01 hive) followed by
+/// `"10ts"` entries at offset 128. The defining difference from Win10 is the
+/// entry **body**: `package_len(2) | package | insertion_flags(4) |
+/// shim_flags(4)` sit between the path and the FILETIME, so the timestamp lives
+/// at `path_end + 2 + package_len + 8` — not at `path_end` as on Win10.
+/// (Layout: Zimmerman `AppCompatCache/Windows8x.cs`; offsets defined in
+/// `forensicnomicon::appcompatcache`.)
+fn win81_appcompat_blob(entries: &[(&str, u64)]) -> Vec<u8> {
     let mut blob = vec![0u8; 128]; // 128-byte header, first dword 0x00000000
     for (path, filetime) in entries {
         let path_utf16: Vec<u8> = path.encode_utf16().flat_map(u16::to_le_bytes).collect();
         let mut body = Vec::new();
-        body.extend_from_slice(&(path_utf16.len() as u16).to_le_bytes());
-        body.extend_from_slice(&path_utf16);
-        body.extend_from_slice(&filetime.to_le_bytes());
+        body.extend_from_slice(&(path_utf16.len() as u16).to_le_bytes()); // path_size
+        body.extend_from_slice(&path_utf16); // path (UTF-16LE)
+        body.extend_from_slice(&0u16.to_le_bytes()); // package_len = 0
+        body.extend_from_slice(&0u32.to_le_bytes()); // insertion_flags
+        body.extend_from_slice(&0u32.to_le_bytes()); // shim_flags
+        body.extend_from_slice(&filetime.to_le_bytes()); // FILETIME
         body.extend_from_slice(&0u32.to_le_bytes()); // data_size = 0
-        blob.extend_from_slice(b"10ts");
+        blob.extend_from_slice(b"10ts"); // entry signature
         blob.extend_from_slice(&0u32.to_le_bytes()); // unknown
         blob.extend_from_slice(&(body.len() as u32).to_le_bytes()); // ce_data_size
         blob.extend_from_slice(&body);
@@ -295,30 +302,43 @@ fn win10_128hdr_appcompat_blob(entries: &[(&str, u64)]) -> Vec<u8> {
     blob
 }
 
-#[test]
-fn parse_decodes_128byte_header_variant() {
-    // Server 2019 / Win10 1809: 128-byte header, first dword 0x00000000, "10ts"
-    // entries at offset 128. The decoder must locate entries by the "10ts"
-    // marker, not by a hardcoded header-size allow-list, or it sentinels the
-    // primary-host (DC01) execution evidence.
-    let blob = win10_128hdr_appcompat_blob(&[
-        ("C:\\Windows\\System32\\cmd.exe", 132_449_604_494_103_203),
-        ("C:\\Windows\\System32\\coreupdater.exe", 132_449_604_494_103_203),
-    ]);
+fn hive_with_appcompat(blob: &[u8]) -> Hive<std::io::Cursor<Vec<u8>>> {
     let key = "ControlSet001\\Control\\Session Manager\\AppCompatCache";
     let data = TestHiveBuilder::new()
         .add_key(key)
-        .add_value(key, APPCOMPAT_VALUE, REG_BINARY, &blob)
+        .add_value(key, APPCOMPAT_VALUE, REG_BINARY, blob)
         .build();
-    let hive = Hive::from_bytes(data).unwrap();
-    let entries = parse(&hive);
+    Hive::from_bytes(data).unwrap()
+}
 
-    assert_eq!(
-        entries.len(),
-        2,
-        "128-byte-header variant must decode both entries, not a sentinel"
+#[test]
+fn parse_decodes_win81_128byte_header_with_timestamp() {
+    // Windows 8.1 / Server 2012 R2 (Case-001 DC01): 128-byte header, "10ts" at
+    // offset 128, and package_len(2)+insertion_flags(4)+shim_flags(4) BEFORE the
+    // FILETIME. The decoder must read the timestamp at path_end+2+package_len+8;
+    // reading it at path_end (the Win10 offset) yields None and leaves the
+    // primary-host execution timestamps dark.
+    let ft = 132_449_604_494_103_203u64; // Case-001-era FILETIME
+    let blob = win81_appcompat_blob(&[
+        ("C:\\Windows\\System32\\cmd.exe", ft),
+        ("C:\\Windows\\System32\\coreupdater.exe", ft),
+    ]);
+    let got = parse(&hive_with_appcompat(&blob));
+    assert_eq!(got.len(), 2, "must decode both Win8.1 entries, not a sentinel");
+    assert!(got[1].path.to_uppercase().contains("COREUPDATER.EXE"));
+
+    // The decoded FILETIME must equal what the known-good Win10 path produces for
+    // the identical timestamp — proving the Win8.1 body offset, not just that
+    // *some* value decoded.
+    let reference = parse(&hive_with_appcompat(&win10_appcompat_blob(&[("C:\\X", ft)])));
+    assert!(
+        reference[0].last_modified.is_some(),
+        "Win10 reference timestamp must decode"
     );
-    assert!(entries[1].path.to_uppercase().contains("COREUPDATER.EXE"));
+    assert_eq!(
+        got[0].last_modified, reference[0].last_modified,
+        "Win8.1 body FILETIME must decode to the same value as Win10 (path_end+2+package_len+8)"
+    );
 }
 
 #[test]
