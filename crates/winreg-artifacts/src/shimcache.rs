@@ -105,18 +105,86 @@ pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<ShimcacheEntry> {
 
     let sig = u32::from_le_bytes([blob[0], blob[1], blob[2], blob[3]]);
 
-    if sig == WIN10_ENTRY_SIG || blob[0] == WIN8_HEADER_SIG {
-        // Win10 "10ts" format or Win8 0x80 format.
-        parse_win10(&blob, raw_size)
-    } else {
-        // Unrecognised format — return single sentinel entry.
-        vec![ShimcacheEntry {
-            path: String::new(),
-            last_modified: None,
-            raw_size,
-            entry_index: 0,
-        }]
+    // Win10 (1507 = 0x30, 1607+ = 0x34): the blob opens with a small header whose
+    // first u32 is the header size; the `"10ts"` entries follow it.
+    if sig == 0x30 || sig == 0x34 {
+        return parse_win10_entries(&blob, sig as usize, raw_size);
     }
+    // Header-less `"10ts"` stream (some synthetic/edge captures put entries at 0).
+    if sig == WIN10_ENTRY_SIG {
+        return parse_win10_entries(&blob, 0, raw_size);
+    }
+    // Win8 0x80 header (legacy fixed 128-byte-header parser).
+    if blob[0] == WIN8_HEADER_SIG {
+        return parse_win10(&blob, raw_size);
+    }
+    // Unrecognised format — return single sentinel entry.
+    vec![ShimcacheEntry {
+        path: String::new(),
+        last_modified: None,
+        raw_size,
+        entry_index: 0,
+    }]
+}
+
+/// Parse a stream of Win10 `"10ts"` AppCompatCache entries beginning at `start`.
+///
+/// Each entry: `"10ts" | unknown(4) | ce_data_size(4) | body[ce_data_size]`,
+/// where the body is `path_size(2) | path(UTF-16LE) | FILETIME(8) | data_size(4)
+/// | data`.
+fn parse_win10_entries(blob: &[u8], start: usize, raw_size: usize) -> Vec<ShimcacheEntry> {
+    let mut entries = Vec::new();
+    let mut offset = start;
+    let mut entry_index = 0;
+
+    while offset + 12 <= blob.len() {
+        if &blob[offset..offset + 4] != b"10ts" {
+            break;
+        }
+        // offset+4: unknown (4 bytes), then the cache-entry data size.
+        let ce_data_size =
+            u32::from_le_bytes([blob[offset + 8], blob[offset + 9], blob[offset + 10], blob[offset + 11]])
+                as usize;
+        let body_start = offset + 12;
+        let body_end = match body_start.checked_add(ce_data_size) {
+            Some(e) if e <= blob.len() => e,
+            _ => break,
+        };
+
+        let (path, last_modified) = decode_win10_entry_body(&blob[body_start..body_end]);
+        entries.push(ShimcacheEntry {
+            path,
+            last_modified,
+            raw_size,
+            entry_index,
+        });
+
+        offset = body_end;
+        entry_index += 1;
+    }
+
+    entries
+}
+
+/// Decode a Win10 entry body: `path_size(2) | path(UTF-16LE) | FILETIME(8) | …`.
+fn decode_win10_entry_body(body: &[u8]) -> (String, Option<String>) {
+    if body.len() < 2 {
+        return (String::new(), None);
+    }
+    let path_size = u16::from_le_bytes([body[0], body[1]]) as usize;
+    let path_end = 2 + path_size;
+    let path = if path_size > 0 && path_end <= body.len() {
+        decode_utf16le(&body[2..path_end])
+    } else {
+        String::new()
+    };
+    let last_modified = if path_end + 8 <= body.len() {
+        let ft = winreg_core::bytes::le_u64(body, path_end);
+        filetime_to_datetime(ft).map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+    } else {
+        None
+    };
+    (path, last_modified)
 }
 
 // ---------------------------------------------------------------------------
