@@ -118,7 +118,17 @@ pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<ShimcacheEntry> {
     if blob[0] == WIN8_HEADER_SIG {
         return parse_win10(&blob, raw_size);
     }
-    // Unrecognised format — return single sentinel entry.
+    // Header size varies across builds — 0x30/0x34 small headers above, plus a
+    // 128-byte header whose first dword is 0x00000000 on Server 2019 / Win10
+    // 1809 (observed on the Case-001 DC01 hive). Rather than enumerate every
+    // header constant, fall back to the structural invariant: cache entries are
+    // "10ts"-tagged, so locate the first marker and parse the stream from there.
+    // This decodes any header size by construction.
+    if let Some(pos) = blob.windows(4).position(|w| w == b"10ts") {
+        return parse_win10_entries(&blob, pos, raw_size);
+    }
+    // No "10ts" entries anywhere — genuinely unrecognised. Return a sentinel so
+    // the caller still records that a blob was present.
     vec![ShimcacheEntry {
         path: String::new(),
         last_modified: None,
