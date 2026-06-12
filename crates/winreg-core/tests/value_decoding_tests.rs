@@ -32,6 +32,25 @@ fn read_non_resident_string() {
 }
 
 #[test]
+fn read_big_data_value_reassembled() {
+    // Values > 16344 bytes are stored as a `db` big-data record: a db cell →
+    // a segment-list cell → N segment data cells. raw_data() must reassemble
+    // them (real Win10 AppCompatCache is stored this way; not reassembling it
+    // returned a 12-byte "db" header and left shimcache dark).
+    let big: Vec<u8> = (0..20_000u32).map(|i| (i % 251) as u8).collect();
+    let data = TestHiveBuilder::new()
+        .add_key("Foo")
+        .add_value("Foo", "Big", 3, &big) // REG_BINARY = 3
+        .build();
+    let hive = Hive::from_bytes(data).unwrap();
+    let key = hive.open_key("Foo").unwrap().unwrap();
+    let val = key.value("Big").unwrap().unwrap();
+    let got = val.raw_data().unwrap();
+    assert_eq!(got.len(), big.len(), "big-data value must reassemble to full length");
+    assert_eq!(got, big, "big-data content must match across all segments");
+}
+
+#[test]
 fn value_metadata() {
     let data = TestHiveBuilder::new()
         .add_key("Test")
