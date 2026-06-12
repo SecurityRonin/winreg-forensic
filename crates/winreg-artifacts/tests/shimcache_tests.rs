@@ -246,3 +246,61 @@ fn parse_resolves_controlset_from_select_on_offline_hive() {
          offline hive that has no CurrentControlSet"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Test: real Win10 AppCompatCache format (header + "10ts" entries)
+// ---------------------------------------------------------------------------
+
+/// Build a realistic Win10 (1607+) AppCompatCache blob: a 52-byte header whose
+/// first u32 is the header size (0x34), followed by `"10ts"` entries. Each entry
+/// is `"10ts" | unknown(4) | ce_data_size(4) | [path_size(2) path FILETIME(8)
+/// data_size(4) data]`.
+fn win10_appcompat_blob(entries: &[(&str, u64)]) -> Vec<u8> {
+    let mut blob = Vec::new();
+    blob.extend_from_slice(&0x34u32.to_le_bytes()); // header signature = header size
+    blob.resize(0x34, 0); // pad header to 52 bytes
+    for (path, filetime) in entries {
+        let path_utf16: Vec<u8> = path.encode_utf16().flat_map(u16::to_le_bytes).collect();
+        let mut body = Vec::new();
+        body.extend_from_slice(&(path_utf16.len() as u16).to_le_bytes()); // path_size
+        body.extend_from_slice(&path_utf16); // path (UTF-16LE)
+        body.extend_from_slice(&filetime.to_le_bytes()); // FILETIME
+        body.extend_from_slice(&0u32.to_le_bytes()); // data_size = 0
+        blob.extend_from_slice(b"10ts"); // entry signature
+        blob.extend_from_slice(&0u32.to_le_bytes()); // unknown
+        blob.extend_from_slice(&(body.len() as u32).to_le_bytes()); // ce_data_size
+        blob.extend_from_slice(&body);
+    }
+    blob
+}
+
+#[test]
+fn parse_decodes_real_win10_appcompat_entries() {
+    // FILETIME 2020-09-19 (Case-001 era).
+    let blob = win10_appcompat_blob(&[
+        ("C:\\Windows\\System32\\cmd.exe", 132_449_604_494_103_203),
+        ("C:\\Windows\\System32\\coreupdater.exe", 132_449_604_494_103_203),
+    ]);
+    let key = "ControlSet001\\Control\\Session Manager\\AppCompatCache";
+    let data = TestHiveBuilder::new()
+        .add_key(key)
+        .add_value(key, APPCOMPAT_VALUE, REG_BINARY, &blob)
+        .build();
+    let hive = Hive::from_bytes(data).unwrap();
+    let entries = parse(&hive);
+
+    assert_eq!(entries.len(), 2, "should decode both Win10 entries, not a sentinel");
+    assert!(
+        entries[0].path.to_uppercase().contains("CMD.EXE"),
+        "entry 0 path: {:?}",
+        entries[0].path
+    );
+    assert!(
+        entries[1].path.to_uppercase().contains("COREUPDATER.EXE"),
+        "entry 1 path: {:?}",
+        entries[1].path
+    );
+    assert!(entries[0].last_modified.is_some(), "FILETIME must decode");
+    assert_eq!(entries[0].entry_index, 0);
+    assert_eq!(entries[1].entry_index, 1);
+}
