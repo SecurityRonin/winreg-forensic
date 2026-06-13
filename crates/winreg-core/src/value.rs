@@ -96,14 +96,19 @@ impl Value<'_> {
                 break;
             };
             let seg_off = CellOffset(u32::from_le_bytes([
-                off_bytes[0], off_bytes[1], off_bytes[2], off_bytes[3],
+                off_bytes[0],
+                off_bytes[1],
+                off_bytes[2],
+                off_bytes[3],
             ]));
             let Ok((_h3, seg_body)) = self.hive.read_cell_raw(seg_off) else {
                 break;
             };
             // Each segment contributes up to 16344 bytes; the value is truncated
             // to the declared `size` (segment cells may be padded).
-            let take = (size - out.len()).min(BIG_DATA_SEGMENT_SIZE).min(seg_body.len());
+            let take = (size - out.len())
+                .min(BIG_DATA_SEGMENT_SIZE)
+                .min(seg_body.len());
             out.extend_from_slice(&seg_body[..take]);
         }
         Ok(out)

@@ -324,13 +324,19 @@ fn parse_decodes_win81_128byte_header_with_timestamp() {
         ("C:\\Windows\\System32\\coreupdater.exe", ft),
     ]);
     let got = parse(&hive_with_appcompat(&blob));
-    assert_eq!(got.len(), 2, "must decode both Win8.1 entries, not a sentinel");
+    assert_eq!(
+        got.len(),
+        2,
+        "must decode both Win8.1 entries, not a sentinel"
+    );
     assert!(got[1].path.to_uppercase().contains("COREUPDATER.EXE"));
 
     // The decoded FILETIME must equal what the known-good Win10 path produces for
     // the identical timestamp — proving the Win8.1 body offset, not just that
     // *some* value decoded.
-    let reference = parse(&hive_with_appcompat(&win10_appcompat_blob(&[("C:\\X", ft)])));
+    let reference = parse(&hive_with_appcompat(&win10_appcompat_blob(&[(
+        "C:\\X", ft,
+    )])));
     assert!(
         reference[0].last_modified.is_some(),
         "Win10 reference timestamp must decode"
@@ -346,7 +352,10 @@ fn parse_decodes_real_win10_appcompat_entries() {
     // FILETIME 2020-09-19 (Case-001 era).
     let blob = win10_appcompat_blob(&[
         ("C:\\Windows\\System32\\cmd.exe", 132_449_604_494_103_203),
-        ("C:\\Windows\\System32\\coreupdater.exe", 132_449_604_494_103_203),
+        (
+            "C:\\Windows\\System32\\coreupdater.exe",
+            132_449_604_494_103_203,
+        ),
     ]);
     let key = "ControlSet001\\Control\\Session Manager\\AppCompatCache";
     let data = TestHiveBuilder::new()
@@ -356,7 +365,11 @@ fn parse_decodes_real_win10_appcompat_entries() {
     let hive = Hive::from_bytes(data).unwrap();
     let entries = parse(&hive);
 
-    assert_eq!(entries.len(), 2, "should decode both Win10 entries, not a sentinel");
+    assert_eq!(
+        entries.len(),
+        2,
+        "should decode both Win10 entries, not a sentinel"
+    );
     assert!(
         entries[0].path.to_uppercase().contains("CMD.EXE"),
         "entry 0 path: {:?}",

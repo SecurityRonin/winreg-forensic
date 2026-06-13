@@ -132,8 +132,7 @@ fn parse_new_format_log(log_data: &[u8], overlay: &mut OverlayBuffer) {
 
             let size = crate::bytes::le_u32(log_data, pos + 4);
             // dirty_page_count at offset +16 relative to HvLE start
-            let page_count =
-                crate::bytes::le_u32(log_data, pos + 16) as usize;
+            let page_count = crate::bytes::le_u32(log_data, pos + 16) as usize;
 
             // Dirty page references start at offset +40
             let ref_start = pos + 40;
@@ -144,8 +143,7 @@ fn parse_new_format_log(log_data: &[u8], overlay: &mut OverlayBuffer) {
                 if ref_offset + 8 > log_data.len() {
                     break;
                 }
-                let page_offset =
-                    crate::bytes::le_u32(log_data, ref_offset);
+                let page_offset = crate::bytes::le_u32(log_data, ref_offset);
                 let page_size = crate::bytes::le_u32(log_data, ref_offset + 4);
 
                 // Calculate where the page data is in the log file.

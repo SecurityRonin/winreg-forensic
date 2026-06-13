@@ -126,7 +126,13 @@ pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<ShimcacheEntry> {
     // Win10 (1507 = 0x30, 1607+ = 0x34): the first dword is the header length;
     // the `"10ts"` entries follow it and carry the FILETIME right after the path.
     if sig == fmt::WIN10_1507_HEADER_LEN || sig == fmt::WIN10_1607_HEADER_LEN {
-        return parse_win10_entries(&blob, sig as usize, raw_size, b"10ts", EntryBodyLayout::Win10);
+        return parse_win10_entries(
+            &blob,
+            sig as usize,
+            raw_size,
+            b"10ts",
+            EntryBodyLayout::Win10,
+        );
     }
     // Header-less `"10ts"` stream (some synthetic/edge captures put entries at 0).
     if sig == fmt::ENTRY_MARKER_WIN81_WIN10_U32 {
@@ -157,7 +163,10 @@ pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<ShimcacheEntry> {
     }
     // Last resort: locate the first "10ts" marker anywhere and parse from there
     // with the Win10 body layout (headerless/synthetic captures).
-    if let Some(pos) = blob.windows(4).position(|w| w == fmt::ENTRY_MARKER_WIN81_WIN10) {
+    if let Some(pos) = blob
+        .windows(4)
+        .position(|w| w == fmt::ENTRY_MARKER_WIN81_WIN10)
+    {
         return parse_win10_entries(&blob, pos, raw_size, b"10ts", EntryBodyLayout::Win10);
     }
     // No "10ts" entries anywhere — genuinely unrecognised. Return a sentinel so
@@ -196,9 +205,12 @@ fn parse_win10_entries(
             break;
         }
         // offset+4: unknown (4 bytes), then the cache-entry data size.
-        let ce_data_size =
-            u32::from_le_bytes([blob[offset + 8], blob[offset + 9], blob[offset + 10], blob[offset + 11]])
-                as usize;
+        let ce_data_size = u32::from_le_bytes([
+            blob[offset + 8],
+            blob[offset + 9],
+            blob[offset + 10],
+            blob[offset + 11],
+        ]) as usize;
         let body_start = offset + fmt::ENTRY_FRAMING_LEN;
         let body_end = match body_start.checked_add(ce_data_size) {
             Some(e) if e <= blob.len() => e,

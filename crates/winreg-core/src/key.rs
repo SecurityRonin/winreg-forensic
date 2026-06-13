@@ -116,8 +116,7 @@ impl<'h> Key<'h> {
             if base + 4 > body.len() {
                 break;
             }
-            let vk_offset =
-                CellOffset(crate::bytes::le_u32(&body, base));
+            let vk_offset = CellOffset(crate::bytes::le_u32(&body, base));
             let cell = self.hive.read_cell(vk_offset)?;
             if let Cell::KeyValue(vk) = cell {
                 values.push(Value {

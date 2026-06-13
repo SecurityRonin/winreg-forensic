@@ -46,7 +46,11 @@ fn read_big_data_value_reassembled() {
     let key = hive.open_key("Foo").unwrap().unwrap();
     let val = key.value("Big").unwrap().unwrap();
     let got = val.raw_data().unwrap();
-    assert_eq!(got.len(), big.len(), "big-data value must reassemble to full length");
+    assert_eq!(
+        got.len(),
+        big.len(),
+        "big-data value must reassemble to full length"
+    );
     assert_eq!(got, big, "big-data content must match across all segments");
 }
 
