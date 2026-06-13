@@ -195,6 +195,44 @@ fn parse_path_field_contains_slot_preview() {
 }
 
 // ---------------------------------------------------------------------------
+// Test 8b: slot containing a real shell item decodes to the folder name
+// ---------------------------------------------------------------------------
+
+/// A spec-exact 0x2F drive-letter volume shell item ("C:\") per libfwsi:
+/// class byte then a 20-byte NUL-terminated ASCII volume name. One item, no
+/// list terminator — the form a BagMRU slot value holds.
+fn volume_2f_blob(name: &str) -> Vec<u8> {
+    let mut field = [0u8; 20];
+    for (i, b) in name.bytes().enumerate().take(19) {
+        field[i] = b;
+    }
+    let mut v = Vec::new();
+    v.extend_from_slice(&(3u16 + field.len() as u16).to_le_bytes()); // cb
+    v.push(0x2F); // volume class
+    v.extend_from_slice(&field);
+    v
+}
+
+#[test]
+fn parse_slot_decodes_real_folder_name() {
+    // Slot "0" holds a genuine "C:\" volume shell item. Deepened decode (via the
+    // shellitem primitive) surfaces the real folder name, not a size preview.
+    let blob = volume_2f_blob("C:\\");
+    let data = TestHiveBuilder::new()
+        .add_key(BAGMRU_PATH)
+        .add_value(BAGMRU_PATH, "0", REG_BINARY, &blob)
+        .build();
+    let hive = Hive::from_bytes(data).unwrap();
+    let entries = parse(&hive);
+    assert_eq!(entries.len(), 1);
+    assert!(
+        entries[0].path.contains("C:\\"),
+        "decoded shellbag path should contain the real folder name 'C:\\', got: {}",
+        entries[0].path
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Test 9: ShellbagEntry struct accessible
 // ---------------------------------------------------------------------------
 
