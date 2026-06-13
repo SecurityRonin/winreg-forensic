@@ -131,9 +131,11 @@ fn decode_mrulistex(key: &Key<'_>) -> Vec<String> {
 
 /// Build a descriptive path string from numeric slot values in this key.
 ///
-/// Numeric value names ("0", "1", ...) contain binary ShellItem blobs.
-/// Full parsing is out of scope; each slot is represented as
-/// `"BagMRU[slot=N, size=M bytes]"`.
+/// Numeric value names ("0", "1", ...) each hold a binary ShellItem blob. Each
+/// slot is decoded with the [`shellitem`] primitive to its real folder name
+/// (volume, folder, file entry). When a slot does not decode to a named item
+/// (truncated or unrecognised class), it degrades to the `BagMRU[slot=N,
+/// size=M bytes]` preview so the slot is never silently dropped.
 fn build_slot_path(key: &Key<'_>) -> String {
     let values = match key.values() {
         Ok(v) => v,
@@ -145,10 +147,23 @@ fn build_slot_path(key: &Key<'_>) -> String {
         let name = val.name();
         // Numeric names are slot entries (skip "MRUListEx" and others).
         if name.chars().all(|c| c.is_ascii_digit()) {
-            let size = val.data_size() as usize;
-            parts.push(format!("BagMRU[slot={name}, size={size} bytes]"));
+            parts.push(decode_slot(&name, &val));
         }
     }
 
     parts.join("; ")
+}
+
+/// Decode one numeric slot value: its real shell-namespace folder name when the
+/// ShellItem blob decodes, otherwise a size preview (never silently dropped).
+fn decode_slot(slot: &str, val: &winreg_core::value::Value<'_>) -> String {
+    if let Ok(raw) = val.raw_data() {
+        let items = shellitem::parse_idlist(&raw);
+        let path = shellitem::reconstruct_path(&items);
+        if !path.is_empty() {
+            return path;
+        }
+    }
+    let size = val.data_size() as usize;
+    format!("BagMRU[slot={slot}, size={size} bytes]")
 }
