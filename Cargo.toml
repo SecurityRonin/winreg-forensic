@@ -46,13 +46,13 @@ clap = { version = "4", features = ["derive"] }
 tempfile = "3"
 
 # Knowledge leaf — registry-artifact catalog (which keys, what they mean).
-forensicnomicon = "0.4"
+forensicnomicon = "0.5"
 
 # Internal
-winreg-format = { path = "crates/winreg-format" }
-winreg-core = { path = "crates/winreg-core" }
+winreg-format = { path = "crates/winreg-format", version = "0.1.0" }
+winreg-core = { path = "crates/winreg-core", version = "0.1.0" }
 winreg-diff = { path = "crates/winreg-diff" }
-winreg-discover = { path = "crates/winreg-discover" }
+winreg-discover = { path = "crates/winreg-discover", version = "0.1.0" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
