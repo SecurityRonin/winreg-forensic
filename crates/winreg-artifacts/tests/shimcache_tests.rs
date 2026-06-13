@@ -7,7 +7,7 @@
 mod common;
 
 use common::hive_builder::TestHiveBuilder;
-use winreg_artifacts::shimcache::{parse, ShimcacheEntry};
+use winreg_artifacts::shimcache::parse;
 use winreg_core::hive::Hive;
 
 // ---------------------------------------------------------------------------
@@ -26,18 +26,6 @@ const REG_BINARY: u32 = 3;
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/// Build a minimal but recognisable AppCompatCache blob.
-/// The blob starts with the Win10 "10ts" signature (little-endian 0x73743031),
-/// followed by a u32 entry count of 0, so no entries should be parsed.
-fn empty_appcompat_blob() -> Vec<u8> {
-    let mut blob = Vec::new();
-    // Signature: "10ts" = 0x30 0x31 0x74 0x73 (little-endian for 0x73743031)
-    blob.extend_from_slice(&0x73743031u32.to_le_bytes());
-    // Entry count = 0
-    blob.extend_from_slice(&0u32.to_le_bytes());
-    blob
-}
 
 /// Build a blob with an unrecognised signature.
 fn unknown_signature_blob() -> Vec<u8> {
@@ -219,13 +207,13 @@ fn parse_key_path_is_correct() {
 // Test: offline-hive ControlSet resolution (real-world quirk)
 // ---------------------------------------------------------------------------
 
-/// REG_DWORD = 4
+/// `REG_DWORD` = 4
 const REG_DWORD: u32 = 4;
 
 /// Real OFFLINE SYSTEM hives have NO `CurrentControlSet` key — that is a volatile
 /// runtime symlink the kernel materialises. Offline they carry `ControlSet001`
-/// (and maybe `002`) plus a `Select` key whose `Current` REG_DWORD names the
-/// active set. The decoder must resolve AppCompatCache through `Select\Current`,
+/// (and maybe `002`) plus a `Select` key whose `Current` `REG_DWORD` names the
+/// active set. The decoder must resolve `AppCompatCache` through `Select\Current`,
 /// not the absent `CurrentControlSet`. (This is why shimcache returned 0 on the
 /// Case-001 SYSTEM hive while the synthetic `CurrentControlSet` tests passed.)
 #[test]
@@ -251,7 +239,7 @@ fn parse_resolves_controlset_from_select_on_offline_hive() {
 // Test: real Win10 AppCompatCache format (header + "10ts" entries)
 // ---------------------------------------------------------------------------
 
-/// Build a realistic Win10 (1607+) AppCompatCache blob: a 52-byte header whose
+/// Build a realistic Win10 (1607+) `AppCompatCache` blob: a 52-byte header whose
 /// first u32 is the header size (0x34), followed by `"10ts"` entries. Each entry
 /// is `"10ts" | unknown(4) | ce_data_size(4) | [path_size(2) path FILETIME(8)
 /// data_size(4) data]`.
@@ -274,7 +262,7 @@ fn win10_appcompat_blob(entries: &[(&str, u64)]) -> Vec<u8> {
     blob
 }
 
-/// Build a Windows 8.1 / Server 2012 R2 AppCompatCache blob: a 128-byte header
+/// Build a Windows 8.1 / Server 2012 R2 `AppCompatCache` blob: a 128-byte header
 /// (first dword `0x00000000`, observed on the Case-001 DC01 hive) followed by
 /// `"10ts"` entries at offset 128. The defining difference from Win10 is the
 /// entry **body**: `package_len(2) | package | insertion_flags(4) |

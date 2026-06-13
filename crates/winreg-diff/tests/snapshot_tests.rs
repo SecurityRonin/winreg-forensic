@@ -26,7 +26,7 @@ fn snapshot_from_dword_value() {
 #[test]
 fn snapshot_from_string_value() {
     let text = "Hello";
-    let mut utf16: Vec<u8> = text.encode_utf16().flat_map(|c| c.to_le_bytes()).collect();
+    let mut utf16: Vec<u8> = text.encode_utf16().flat_map(u16::to_le_bytes).collect();
     utf16.extend_from_slice(&[0, 0]); // null terminator
 
     let hive_data = TestHiveBuilder::new()

@@ -9,7 +9,7 @@
 //! - [`Wildcard::Subkey`] (`*` / `**`) → the subkeys of a node (intra-hive).
 //! - [`Wildcard::ControlSet`] (`CurrentControlSet`) → the `ControlSet00N` set
 //!   selected by `Select\Current` (intra-SYSTEM-hive).
-//! - [`Wildcard::User`] (`HKU\%%sid%%` / NtUser) → the per-user profile hives
+//! - [`Wildcard::User`] (`HKU\%%sid%%` / `NtUser`) → the per-user profile hives
 //!   (cross-file; bound by the caller, [`crate::catalog_scan::scan_users`]).
 //!
 //! This module owns the intra-hive walk for the `Subkey` and `ControlSet`
@@ -27,7 +27,7 @@ pub enum Wildcard {
     /// `CurrentControlSet` — ranges over the active `ControlSet00N`
     /// (intra-SYSTEM-hive), selected by `Select\Current`.
     ControlSet,
-    /// `HKU\%%sid%%` / per-user NtUser — ranges over the profile hives
+    /// `HKU\%%sid%%` / per-user `NtUser` — ranges over the profile hives
     /// (cross-file). Bound by the multi-user scan, not by this engine.
     User,
 }
@@ -148,7 +148,10 @@ pub fn expand(
 }
 
 /// Recursive template walk shared by every domain source.
-#[allow(clippy::too_many_arguments)]
+// The three match arms each recurse with the same 8-argument state; splitting
+// them into helpers would thread that state through extra signatures and
+// obscure the single recursion, so keep the arms inline.
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn walk(
     key: &Key<'_>,
     segments: &[Segment],

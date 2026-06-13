@@ -1,7 +1,7 @@
 //! Windows autostart (Run/RunOnce) registry key artifact extractor.
 //!
 //! Enumerates all standard persistence-related Run keys from a REGF hive and
-//! classifies each entry against known LOLBin / living-off-the-land abuse
+//! classifies each entry against known `LOLBin` / living-off-the-land abuse
 //! patterns (MITRE ATT&CK T1547.001).
 
 use std::io::Cursor;
@@ -50,7 +50,7 @@ pub struct RunKeyEntry {
     pub value_name: String,
     /// Value data: the command or path that runs at startup.
     pub command: String,
-    /// `true` if the command matches a known LOLBin abuse pattern.
+    /// `true` if the command matches a known `LOLBin` abuse pattern.
     pub is_suspicious: bool,
     /// Human-readable explanation when `is_suspicious` is `true`.
     pub suspicious_reason: Option<String>,
@@ -58,7 +58,7 @@ pub struct RunKeyEntry {
 
 // ── Classification ────────────────────────────────────────────────────────────
 
-/// Classify a run-key command string for suspicious LOLBin abuse patterns.
+/// Classify a run-key command string for suspicious `LOLBin` abuse patterns.
 ///
 /// Returns `Some(reason)` when suspicious, `None` when benign.
 ///
@@ -87,10 +87,11 @@ pub fn classify_run_entry(command: &str) -> Option<String> {
     }
 
     // cmd /c with network or UNC path
-    if lower.contains("cmd") && lower.contains("/c") {
-        if lower.contains("http") || lower.contains("ftp") || lower.contains("\\\\") {
-            return Some("cmd /c with remote resource (http/ftp/UNC)".to_string());
-        }
+    if lower.contains("cmd")
+        && lower.contains("/c")
+        && (lower.contains("http") || lower.contains("ftp") || lower.contains("\\\\"))
+    {
+        return Some("cmd /c with remote resource (http/ftp/UNC)".to_string());
     }
 
     // mshta
@@ -161,14 +162,12 @@ pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<RunKeyEntry> {
 
     // Enumerate standard Run/RunOnce/… key paths.
     for &key_path in run_paths {
-        let key = match hive.open_key(key_path) {
-            Ok(Some(k)) => k,
-            _ => continue,
+        let Ok(Some(key)) = hive.open_key(key_path) else {
+            continue;
         };
 
-        let values = match key.values() {
-            Ok(v) => v,
-            Err(_) => continue,
+        let Ok(values) = key.values() else {
+            continue;
         };
 
         for val in values {
@@ -189,9 +188,8 @@ pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<RunKeyEntry> {
     // Enumerate Winlogon persistence values.
     if let Ok(Some(winlogon)) = hive.open_key(winlogon_path) {
         for &vname in WINLOGON_VALUES {
-            let val = match winlogon.value(vname) {
-                Ok(Some(v)) => v,
-                _ => continue,
+            let Ok(Some(val)) = winlogon.value(vname) else {
+                continue;
             };
             let command = val.as_string().unwrap_or_default();
             let suspicious_reason = classify_run_entry(&command);

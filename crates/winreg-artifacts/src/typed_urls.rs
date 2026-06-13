@@ -1,4 +1,4 @@
-//! Internet Explorer / Edge TypedURLs registry artifact extractor.
+//! Internet Explorer / Edge `TypedURLs` registry artifact extractor.
 //!
 //! Extracts URLs typed directly into the IE/Edge address bar from
 //! `Software\Microsoft\Internet Explorer\TypedURLs` in NTUSER.DAT hives,
@@ -33,12 +33,12 @@ const SUSPICIOUS_DOMAINS: &[&str] = &[
 
 // ── Output type ───────────────────────────────────────────────────────────────
 
-/// A URL entry from the IE/Edge TypedURLs registry key.
+/// A URL entry from the IE/Edge `TypedURLs` registry key.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct TypedUrl {
     /// The URL string typed into the address bar.
     pub url: String,
-    /// ISO 8601 timestamp from the TypedURLsTime FILETIME, or `None` if not found.
+    /// ISO 8601 timestamp from the `TypedURLsTime` FILETIME, or `None` if not found.
     pub last_visited: Option<String>,
     /// `true` when the URL matches a known suspicious domain or pattern.
     pub is_suspicious: bool,
@@ -96,17 +96,16 @@ fn is_ipv4(s: &str) -> bool {
 
 // ── Public parse function ─────────────────────────────────────────────────────
 
-/// Extract all TypedURL entries from an NTUSER.DAT hive.
+/// Extract all `TypedURL` entries from an NTUSER.DAT hive.
 ///
 /// Reads `Software\Microsoft\Internet Explorer\TypedURLs` for URL strings
 /// and `TypedURLsTime` for corresponding FILETIME timestamps.
 ///
-/// Returns an empty Vec if the TypedURLs key is absent.
+/// Returns an empty Vec if the `TypedURLs` key is absent.
 pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<TypedUrl> {
     // Open the TypedURLs key.
-    let urls_key = match hive.open_key(TYPED_URLS_PATH) {
-        Ok(Some(k)) => k,
-        _ => return Vec::new(),
+    let Ok(Some(urls_key)) = hive.open_key(TYPED_URLS_PATH) else {
+        return Vec::new();
     };
 
     // Build a timestamp map from TypedURLsTime (value name → ISO 8601 string).
@@ -131,9 +130,8 @@ pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<TypedUrl> {
     };
 
     // Enumerate TypedURLs values.
-    let values = match urls_key.values() {
-        Ok(v) => v,
-        Err(_) => return Vec::new(),
+    let Ok(values) = urls_key.values() else {
+        return Vec::new();
     };
 
     let mut entries = Vec::new();

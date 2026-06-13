@@ -16,7 +16,7 @@ use winreg_artifacts::path_expansion::{expand, resolve_control_sets, Binding, Se
 use winreg_core::hive::Hive;
 
 fn utf16le(s: &str) -> Vec<u8> {
-    let mut out: Vec<u8> = s.encode_utf16().flat_map(|c| c.to_le_bytes()).collect();
+    let mut out: Vec<u8> = s.encode_utf16().flat_map(u16::to_le_bytes).collect();
     out.extend_from_slice(&[0x00, 0x00]);
     out
 }

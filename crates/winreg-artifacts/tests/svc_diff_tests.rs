@@ -7,7 +7,7 @@
 mod common;
 
 use common::hive_builder::TestHiveBuilder;
-use winreg_artifacts::svc_diff::{classify_service, parse, ServiceEntry};
+use winreg_artifacts::svc_diff::{classify_service, parse};
 use winreg_core::hive::Hive;
 
 // ---------------------------------------------------------------------------
@@ -30,7 +30,7 @@ fn reg_sz(s: &str) -> Vec<u8> {
     s.encode_utf16().flat_map(u16::to_le_bytes).collect()
 }
 
-/// Encode a u32 as 4-byte little-endian (REG_DWORD).
+/// Encode a u32 as 4-byte little-endian (`REG_DWORD`).
 fn reg_dword(v: u32) -> Vec<u8> {
     v.to_le_bytes().to_vec()
 }

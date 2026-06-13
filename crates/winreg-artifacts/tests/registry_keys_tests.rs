@@ -174,10 +174,7 @@ fn walk_values_sz_preview() {
 
     // Also verify truncation for long strings (> 256 chars)
     let long_str: String = "A".repeat(300);
-    let long_utf16: Vec<u8> = long_str
-        .encode_utf16()
-        .flat_map(|c| c.to_le_bytes())
-        .collect();
+    let long_utf16: Vec<u8> = long_str.encode_utf16().flat_map(u16::to_le_bytes).collect();
     let data2 = TestHiveBuilder::new()
         .add_key("Long")
         .add_value("Long", "LongVal", 1, &long_utf16)

@@ -43,7 +43,7 @@ pub struct AmcacheEntry {
 // Key paths
 // ---------------------------------------------------------------------------
 
-/// Path to the InventoryApplicationFile container key (relative to hive root).
+/// Path to the `InventoryApplicationFile` container key (relative to hive root).
 const INVENTORY_APP_FILE: &str = "Root\\InventoryApplicationFile";
 
 // ---------------------------------------------------------------------------
@@ -58,14 +58,12 @@ const INVENTORY_APP_FILE: &str = "Root\\InventoryApplicationFile";
 ///
 /// Returns an empty `Vec` if the key is not present.
 pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<AmcacheEntry> {
-    let container = match hive.open_key(INVENTORY_APP_FILE) {
-        Ok(Some(k)) => k,
-        _ => return Vec::new(),
+    let Ok(Some(container)) = hive.open_key(INVENTORY_APP_FILE) else {
+        return Vec::new();
     };
 
-    let subkeys = match container.subkeys() {
-        Ok(s) => s,
-        Err(_) => return Vec::new(),
+    let Ok(subkeys) = container.subkeys() else {
+        return Vec::new();
     };
 
     let mut entries = Vec::with_capacity(subkeys.len());
@@ -90,18 +88,18 @@ pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<AmcacheEntry> {
 
         // FileId: strip the leading "0000" prefix if present.
         let file_id_raw = read_sz("FileId");
-        let sha1 = if file_id_raw.starts_with("0000") {
-            file_id_raw[4..].to_string()
-        } else {
-            file_id_raw
-        };
+        let sha1 = file_id_raw
+            .strip_prefix("0000")
+            .map_or_else(|| file_id_raw.clone(), ToString::to_string);
 
-        let size = subkey
-            .value("Size")
-            .ok()
-            .flatten()
-            .and_then(|v| v.as_u32().ok())
-            .unwrap_or(0) as u64;
+        let size = u64::from(
+            subkey
+                .value("Size")
+                .ok()
+                .flatten()
+                .and_then(|v| v.as_u32().ok())
+                .unwrap_or(0),
+        );
 
         let link_date_raw = read_sz("LinkDate");
         let link_date = if link_date_raw.is_empty() {

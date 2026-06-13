@@ -52,6 +52,7 @@ impl TestHiveBuilder {
     }
 
     /// Add a value under the given key path.
+    #[allow(dead_code)] // test-builder API surface
     pub fn add_value(mut self, key_path: &str, name: &str, data_type: u32, data: &[u8]) -> Self {
         self.values.push(TestValue {
             key_path: key_path.to_string(),

@@ -1,4 +1,4 @@
-//! UserAssist registry artifact extractor.
+//! `UserAssist` registry artifact extractor.
 //!
 //! Windows stores program launch counts and last-run timestamps in
 //! `Software\Microsoft\Windows\CurrentVersion\Explorer\UserAssist\{GUID}\Count`
@@ -23,12 +23,12 @@ const KNOWN_GUIDS: &[&str] = &[GUID_EXE, GUID_LNK];
 
 // ── Binary value layout ───────────────────────────────────────────────────────
 
-/// Minimum data size for a valid UserAssist binary value.
+/// Minimum data size for a valid `UserAssist` binary value.
 const UA_DATA_SIZE: usize = 68; // bytes 60-67 (FILETIME) must be accessible
 
 // ── Output type ───────────────────────────────────────────────────────────────
 
-/// A UserAssist entry from the registry.
+/// A `UserAssist` entry from the registry.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct UserAssistEntry {
     /// ROT13-decoded program path / name.
@@ -60,13 +60,13 @@ pub fn rot13_decode(s: &str) -> String {
 
 // ── Public parse function ─────────────────────────────────────────────────────
 
-/// Extract all UserAssist entries from an NTUSER.DAT hive.
+/// Extract all `UserAssist` entries from an NTUSER.DAT hive.
 ///
 /// Enumerates both the executable and shortcut GUID subkeys under
 /// `Software\Microsoft\Windows\CurrentVersion\Explorer\UserAssist\{GUID}\Count`,
 /// ROT13-decodes each value name, and parses the binary payload.
 ///
-/// Returns an empty Vec if no UserAssist keys are present.
+/// Returns an empty Vec if no `UserAssist` keys are present.
 pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<UserAssistEntry> {
     let mut entries = Vec::new();
 
@@ -75,20 +75,17 @@ pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<UserAssistEntry> {
             "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\UserAssist\\{guid}\\Count"
         );
 
-        let count_key = match hive.open_key(&count_path) {
-            Ok(Some(k)) => k,
-            _ => continue,
+        let Ok(Some(count_key)) = hive.open_key(&count_path) else {
+            continue;
         };
 
-        let values = match count_key.values() {
-            Ok(v) => v,
-            Err(_) => continue,
+        let Ok(values) = count_key.values() else {
+            continue;
         };
 
         for val in values {
-            let raw = match val.raw_data() {
-                Ok(d) => d,
-                Err(_) => continue,
+            let Ok(raw) = val.raw_data() else {
+                continue;
             };
 
             if raw.len() < UA_DATA_SIZE {

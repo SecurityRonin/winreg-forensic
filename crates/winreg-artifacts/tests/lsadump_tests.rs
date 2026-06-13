@@ -17,7 +17,7 @@ use winreg_core::hive::Hive;
 const SECRETS_KEY: &str = "Policy\\Secrets";
 const CACHE_KEY: &str = "Cache";
 
-/// REG_BINARY type
+/// `REG_BINARY` type
 const REG_BINARY: u32 = 3;
 
 // ---------------------------------------------------------------------------
@@ -29,14 +29,9 @@ fn secret_key(name: &str) -> String {
     format!("{SECRETS_KEY}\\{name}")
 }
 
-/// Build a key path for a CurrVal subkey under a named secret.
+/// Build a key path for a `CurrVal` subkey under a named secret.
 fn currval_key(name: &str) -> String {
     format!("{SECRETS_KEY}\\{name}\\CurrVal")
-}
-
-/// Build a key path for an OldVal subkey under a named secret.
-fn oldval_key(name: &str) -> String {
-    format!("{SECRETS_KEY}\\{name}\\OldVal")
 }
 
 /// Build a key path for a DCC2 slot under Cache.

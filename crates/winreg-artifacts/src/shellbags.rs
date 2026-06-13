@@ -1,11 +1,11 @@
 //! ShellBags registry artifact extractor.
 //!
-//! ShellBags record folder navigation history in Windows. BagMRU keys hold
-//! slot values (numeric names "0", "1", ...) containing binary ShellItem data,
+//! ShellBags record folder navigation history in Windows. `BagMRU` keys hold
+//! slot values (numeric names "0", "1", ...) containing binary `ShellItem` data,
 //! and a `MRUListEx` value encoding the access order.
 //!
-//! This implementation walks BagMRU keys recursively and emits one
-//! `ShellbagEntry` per key. Full ShellItem binary parsing is out of scope;
+//! This implementation walks `BagMRU` keys recursively and emits one
+//! `ShellbagEntry` per key. Full `ShellItem` binary parsing is out of scope;
 //! slot data is represented as a human-readable size preview.
 
 use std::io::Cursor;
@@ -17,7 +17,7 @@ use winreg_core::key::{filetime_to_datetime, Key};
 // Output type
 // ---------------------------------------------------------------------------
 
-/// A single BagMRU entry from the ShellBags registry area.
+/// A single `BagMRU` entry from the ShellBags registry area.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ShellbagEntry {
     /// Reconstructed / descriptive folder path.
@@ -25,7 +25,7 @@ pub struct ShellbagEntry {
     /// `"BagMRU[slot=N, size=M bytes]"` for each numeric slot value present,
     /// or an empty string if no slot values exist.
     pub path: String,
-    /// Registry path to this BagMRU key (relative to hive root).
+    /// Registry path to this `BagMRU` key (relative to hive root).
     pub key_path: String,
     /// Key `LastWriteTime` as ISO 8601, or `None` if unavailable.
     pub last_written: Option<String>,
@@ -48,12 +48,12 @@ const BAGMRU_PATHS: &[&str] = &[
 // Public parse function
 // ---------------------------------------------------------------------------
 
-/// Extract all ShellBag entries from a hive.
+/// Extract all `ShellBag` entries from a hive.
 ///
-/// Probes several well-known BagMRU key paths. For each that exists, walks
+/// Probes several well-known `BagMRU` key paths. For each that exists, walks
 /// the key tree recursively and emits one [`ShellbagEntry`] per key.
 ///
-/// Returns an empty `Vec` if no BagMRU key is present.
+/// Returns an empty `Vec` if no `BagMRU` key is present.
 pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<ShellbagEntry> {
     let mut entries = Vec::new();
 
@@ -103,13 +103,11 @@ fn walk_key(key: &Key<'_>, key_path: &str, entries: &mut Vec<ShellbagEntry>) {
 /// Decode `MRUListEx`: a `REG_BINARY` value holding an array of `u32` LE
 /// slot indices, terminated by `0xFFFF_FFFF`.
 fn decode_mrulistex(key: &Key<'_>) -> Vec<String> {
-    let val = match key.value("MRUListEx") {
-        Ok(Some(v)) => v,
-        _ => return Vec::new(),
+    let Ok(Some(val)) = key.value("MRUListEx") else {
+        return Vec::new();
     };
-    let raw = match val.raw_data() {
-        Ok(d) => d,
-        Err(_) => return Vec::new(),
+    let Ok(raw) = val.raw_data() else {
+        return Vec::new();
     };
 
     let mut order = Vec::new();
@@ -131,15 +129,14 @@ fn decode_mrulistex(key: &Key<'_>) -> Vec<String> {
 
 /// Build a descriptive path string from numeric slot values in this key.
 ///
-/// Numeric value names ("0", "1", ...) each hold a binary ShellItem blob. Each
+/// Numeric value names ("0", "1", ...) each hold a binary `ShellItem` blob. Each
 /// slot is decoded with the [`shellitem`] primitive to its real folder name
 /// (volume, folder, file entry). When a slot does not decode to a named item
 /// (truncated or unrecognised class), it degrades to the `BagMRU[slot=N,
 /// size=M bytes]` preview so the slot is never silently dropped.
 fn build_slot_path(key: &Key<'_>) -> String {
-    let values = match key.values() {
-        Ok(v) => v,
-        Err(_) => return String::new(),
+    let Ok(values) = key.values() else {
+        return String::new();
     };
 
     let mut parts: Vec<String> = Vec::new();
@@ -155,7 +152,7 @@ fn build_slot_path(key: &Key<'_>) -> String {
 }
 
 /// Decode one numeric slot value: its real shell-namespace folder name when the
-/// ShellItem blob decodes, otherwise a size preview (never silently dropped).
+/// `ShellItem` blob decodes, otherwise a size preview (never silently dropped).
 fn decode_slot(slot: &str, val: &winreg_core::value::Value<'_>) -> String {
     if let Ok(raw) = val.raw_data() {
         let items = shellitem::parse_idlist(&raw);

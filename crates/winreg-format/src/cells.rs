@@ -433,7 +433,7 @@ mod nk_vk_tests {
 
     fn build_vk_bytes(name: &str, data_type: u32, data_size: u32, data_offset: u32) -> Vec<u8> {
         let name_bytes = name.as_bytes();
-        let comp_flag: u16 = if name.is_empty() { 0 } else { 0x0001 };
+        let comp_flag: u16 = u16::from(!name.is_empty());
         let mut buf = vec![0u8; 18 + name_bytes.len()];
         buf[0..2].copy_from_slice(&(name_bytes.len() as u16).to_le_bytes());
         buf[2..6].copy_from_slice(&data_size.to_le_bytes());

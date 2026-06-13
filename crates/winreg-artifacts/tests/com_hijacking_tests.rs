@@ -17,7 +17,7 @@ use winreg_core::hive::Hive;
 const REG_SZ: u32 = 1;
 
 fn utf16le(s: &str) -> Vec<u8> {
-    let mut out: Vec<u8> = s.encode_utf16().flat_map(|c| c.to_le_bytes()).collect();
+    let mut out: Vec<u8> = s.encode_utf16().flat_map(u16::to_le_bytes).collect();
     out.push(0);
     out.push(0);
     out
@@ -183,11 +183,11 @@ fn parse_pair_matching_paths_not_suspicious() {
 #[test]
 fn parse_pair_detects_hkcu_override() {
     let clsid = "{22222222-2222-2222-2222-222222222222}";
-    let hkcu_dll = r"C:\Users\victim\AppData\Roaming\evil.dll";
-    let hkcr_dll = r"C:\Windows\System32\shell32.dll";
+    let user_dll = r"C:\Users\victim\AppData\Roaming\evil.dll";
+    let system_dll = r"C:\Windows\System32\shell32.dll";
 
-    let hku_data = build_hku_hive(clsid, hkcu_dll);
-    let hkcr_data = build_hkcr_hive(clsid, hkcr_dll);
+    let hku_data = build_hku_hive(clsid, user_dll);
+    let hkcr_data = build_hkcr_hive(clsid, system_dll);
 
     let hku_hive = Hive::from_bytes(hku_data).unwrap();
     let hkcr_hive = Hive::from_bytes(hkcr_data).unwrap();
@@ -195,8 +195,8 @@ fn parse_pair_detects_hkcu_override() {
     let results = parse_pair(&hku_hive, &hkcr_hive);
     assert_eq!(results.len(), 1, "should detect one hijack entry");
     assert!(results[0].is_suspicious, "override should be suspicious");
-    assert_eq!(results[0].hkcu_server, hkcu_dll);
-    assert_eq!(results[0].hkcr_server, hkcr_dll);
+    assert_eq!(results[0].hkcu_server, user_dll);
+    assert_eq!(results[0].hkcr_server, system_dll);
 }
 
 // ---------------------------------------------------------------------------

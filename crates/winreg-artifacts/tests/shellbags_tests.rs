@@ -14,7 +14,7 @@ use winreg_core::hive::Hive;
 // Constants
 // ---------------------------------------------------------------------------
 
-/// Primary BagMRU path (NTUSER.DAT / modern Windows).
+/// Primary `BagMRU` path (NTUSER.DAT / modern Windows).
 const BAGMRU_PATH: &str = "Software\\Microsoft\\Windows\\Shell\\BagMRU";
 
 // REG_BINARY = 3, REG_SZ = 1
@@ -200,7 +200,7 @@ fn parse_path_field_contains_slot_preview() {
 
 /// A spec-exact 0x2F drive-letter volume shell item ("C:\") per libfwsi:
 /// class byte then a 20-byte NUL-terminated ASCII volume name. One item, no
-/// list terminator — the form a BagMRU slot value holds.
+/// list terminator — the form a `BagMRU` slot value holds.
 fn volume_2f_blob(name: &str) -> Vec<u8> {
     let mut field = [0u8; 20];
     for (i, b) in name.bytes().enumerate().take(19) {

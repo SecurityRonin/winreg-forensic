@@ -67,11 +67,11 @@ fn is_guid(name: &str) -> bool {
         && b[14] == b'-'
         && b[19] == b'-'
         && b[24] == b'-'
-        && b[1..9].iter().all(|c| c.is_ascii_hexdigit())
-        && b[10..14].iter().all(|c| c.is_ascii_hexdigit())
-        && b[15..19].iter().all(|c| c.is_ascii_hexdigit())
-        && b[20..24].iter().all(|c| c.is_ascii_hexdigit())
-        && b[25..37].iter().all(|c| c.is_ascii_hexdigit())
+        && b[1..9].iter().all(u8::is_ascii_hexdigit)
+        && b[10..14].iter().all(u8::is_ascii_hexdigit)
+        && b[15..19].iter().all(u8::is_ascii_hexdigit)
+        && b[20..24].iter().all(u8::is_ascii_hexdigit)
+        && b[25..37].iter().all(u8::is_ascii_hexdigit)
 }
 
 fn str_val(key: &winreg_core::key::Key<'_>, name: &str) -> Option<String> {
@@ -89,16 +89,14 @@ fn u32_val(key: &winreg_core::key::Key<'_>, name: &str) -> Option<u32> {
 
 /// Parse WSL distro registrations from an NTUSER.DAT hive.
 pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<LxssDistro> {
-    let lxss_key = match hive.open_key(LXSS_PATH) {
-        Ok(Some(k)) => k,
-        _ => return Vec::new(),
+    let Ok(Some(lxss_key)) = hive.open_key(LXSS_PATH) else {
+        return Vec::new();
     };
 
-    let default_guid = str_val(&lxss_key, "DefaultDistribution").unwrap_or_default();
+    let default_distro_guid = str_val(&lxss_key, "DefaultDistribution").unwrap_or_default();
 
-    let subkeys = match lxss_key.subkeys() {
-        Ok(s) => s,
-        Err(_) => return Vec::new(),
+    let Ok(subkeys) = lxss_key.subkeys() else {
+        return Vec::new();
     };
 
     let mut distros = Vec::new();
@@ -109,14 +107,12 @@ pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<LxssDistro> {
             continue;
         }
 
-        let distribution_name = match str_val(&subkey, "DistributionName") {
-            Some(n) => n,
-            None => continue,
+        let Some(distribution_name) = str_val(&subkey, "DistributionName") else {
+            continue;
         };
 
-        let base_path = match str_val(&subkey, "BasePath") {
-            Some(p) => p,
-            None => continue,
+        let Some(base_path) = str_val(&subkey, "BasePath") else {
+            continue;
         };
 
         let package_family_name = str_val(&subkey, "PackageFamilyName");
@@ -134,7 +130,7 @@ pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<LxssDistro> {
         };
 
         let default_uid = u32_val(&subkey, "DefaultUid");
-        let is_default = !default_guid.is_empty() && guid == default_guid;
+        let is_default = !default_distro_guid.is_empty() && guid == default_distro_guid;
 
         distros.push(LxssDistro {
             guid,

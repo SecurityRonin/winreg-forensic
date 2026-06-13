@@ -60,19 +60,16 @@ const ACCOUNT_LOCKED: u32 = 0x0010;
 pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<SamUserEntry> {
     let mut results = Vec::new();
 
-    let names_key = match hive.open_key("SAM\\Domains\\Account\\Users\\Names") {
-        Ok(Some(k)) => k,
-        _ => return results,
+    let Ok(Some(names_key)) = hive.open_key("SAM\\Domains\\Account\\Users\\Names") else {
+        return results;
     };
 
-    let users_key = match hive.open_key("SAM\\Domains\\Account\\Users") {
-        Ok(Some(k)) => k,
-        _ => return results,
+    let Ok(Some(users_key)) = hive.open_key("SAM\\Domains\\Account\\Users") else {
+        return results;
     };
 
-    let username_keys = match names_key.subkeys() {
-        Ok(v) => v,
-        Err(_) => return results,
+    let Ok(username_keys) = names_key.subkeys() else {
+        return results;
     };
 
     for name_key in username_keys {
@@ -85,23 +82,20 @@ pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<SamUserEntry> {
         // The subkey names under Users\ are uppercase 8-digit hex RIDs (e.g., "000001F4").
         // We try to find the matching RID by scanning Users\ subkeys (excluding "Names").
         let rid_opt = find_rid_for_username(&users_key, &username);
-        let (rid, f_data) = match rid_opt {
-            Some((r, d)) => (r, d),
-            None => {
-                // No matching RID found — include with defaults
-                results.push(SamUserEntry {
-                    username,
-                    rid: 0,
-                    last_login: None,
-                    password_last_set: None,
-                    account_expires: None,
-                    login_count: 0,
-                    account_flags: 0,
-                    is_disabled: false,
-                    is_locked: false,
-                });
-                continue;
-            }
+        let Some((rid, f_data)) = rid_opt else {
+            // No matching RID found — include with defaults
+            results.push(SamUserEntry {
+                username,
+                rid: 0,
+                last_login: None,
+                password_last_set: None,
+                account_expires: None,
+                login_count: 0,
+                account_flags: 0,
+                is_disabled: false,
+                is_locked: false,
+            });
+            continue;
         };
 
         let entry = parse_f_record(&username, rid, &f_data);
@@ -133,9 +127,8 @@ fn find_rid_for_username(
         let rid = u32::from_str_radix(&name, 16).ok()?;
 
         // Read the F value
-        let f_val = match sub.value("F") {
-            Ok(Some(v)) => v,
-            _ => continue,
+        let Ok(Some(f_val)) = sub.value("F") else {
+            continue;
         };
         let f_data = f_val.raw_data().unwrap_or_default();
 

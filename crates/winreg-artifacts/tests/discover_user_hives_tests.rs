@@ -19,7 +19,7 @@ use winreg_artifacts::catalog_scan::{discover_user_hives, scan_users};
 const REG_SZ: u32 = 1;
 
 fn utf16le(s: &str) -> Vec<u8> {
-    let mut out: Vec<u8> = s.encode_utf16().flat_map(|c| c.to_le_bytes()).collect();
+    let mut out: Vec<u8> = s.encode_utf16().flat_map(u16::to_le_bytes).collect();
     out.extend_from_slice(&[0x00, 0x00]);
     out
 }

@@ -240,7 +240,7 @@ mod tests {
     #[test]
     fn out_of_bounds_offset_returns_error() {
         let hive = Hive::from_bytes(build_minimal_hive()).unwrap();
-        let bad_offset = CellOffset(0xFFFFFE); // way beyond data
+        let bad_offset = CellOffset(0x00FF_FFFE); // way beyond data
         assert!(matches!(
             hive.read_cell(bad_offset),
             Err(HiveError::CellOverflow { .. })

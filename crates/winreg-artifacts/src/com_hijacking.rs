@@ -34,6 +34,9 @@ pub struct ComHijackInfo {
 /// Suspicious when the path is in a user-writable directory (`\temp\`,
 /// `\appdata\`, `\downloads\`, `\public\`, `\programdata\`), or when it
 /// overrides a non-empty HKCR registration with a different path.
+// `hkcr_server`/`hkcu_server` differ only by the hive root (HKCR vs HKCU);
+// that distinction is the whole point of the comparison, so keep both names.
+#[allow(clippy::similar_names)]
 pub fn classify_com_hijack(hkcr_server: &str, hkcu_server: &str) -> (bool, Option<String>) {
     if hkcu_server.is_empty() {
         return (false, None);
@@ -67,29 +70,28 @@ pub fn classify_com_hijack(hkcr_server: &str, hkcu_server: &str) -> (bool, Optio
 ///
 /// `hku_hive`: NTUSER.DAT — contains `Software\Classes\CLSID` user overrides.
 /// `hkcr_hive`: SOFTWARE or USRCLASS.DAT — contains the system-wide CLSID registrations.
+// `hkcu_server`/`hkcr_server` differ only by the hive root, which is the point.
+#[allow(clippy::similar_names)]
 pub fn parse_pair(
     hku_hive: &Hive<Cursor<Vec<u8>>>,
     hkcr_hive: &Hive<Cursor<Vec<u8>>>,
 ) -> Vec<ComHijackInfo> {
     let mut results = Vec::new();
 
-    let clsid_key = match hku_hive.open_key("Software\\Classes\\CLSID") {
-        Ok(Some(k)) => k,
-        _ => return results,
+    let Ok(Some(clsid_key)) = hku_hive.open_key("Software\\Classes\\CLSID") else {
+        return results;
     };
 
-    let guids = match clsid_key.subkeys() {
-        Ok(v) => v,
-        Err(_) => return results,
+    let Ok(guids) = clsid_key.subkeys() else {
+        return results;
     };
 
     for guid_key in guids {
         let clsid = guid_key.name();
 
         // Find InprocServer32 under this GUID key in HKCU
-        let inproc = match guid_key.subkey("InprocServer32") {
-            Ok(Some(k)) => k,
-            _ => continue,
+        let Ok(Some(inproc)) = guid_key.subkey("InprocServer32") else {
+            continue;
         };
 
         let hkcu_server = read_default_value(&inproc);
@@ -120,22 +122,19 @@ pub fn parse_pair(
 pub fn parse_hkcu_only(hku_hive: &Hive<Cursor<Vec<u8>>>) -> Vec<ComHijackInfo> {
     let mut results = Vec::new();
 
-    let clsid_key = match hku_hive.open_key("Software\\Classes\\CLSID") {
-        Ok(Some(k)) => k,
-        _ => return results,
+    let Ok(Some(clsid_key)) = hku_hive.open_key("Software\\Classes\\CLSID") else {
+        return results;
     };
 
-    let guids = match clsid_key.subkeys() {
-        Ok(v) => v,
-        Err(_) => return results,
+    let Ok(guids) = clsid_key.subkeys() else {
+        return results;
     };
 
     for guid_key in guids {
         let clsid = guid_key.name();
 
-        let inproc = match guid_key.subkey("InprocServer32") {
-            Ok(Some(k)) => k,
-            _ => continue,
+        let Ok(Some(inproc)) = guid_key.subkey("InprocServer32") else {
+            continue;
         };
 
         let hkcu_server = read_default_value(&inproc);
@@ -161,9 +160,8 @@ pub fn parse_hkcu_only(hku_hive: &Hive<Cursor<Vec<u8>>>) -> Vec<ComHijackInfo> {
 
 /// Read the default (empty-name) value from a key as a string.
 fn read_default_value(key: &winreg_core::key::Key<'_>) -> String {
-    let vals = match key.values() {
-        Ok(v) => v,
-        Err(_) => return String::new(),
+    let Ok(vals) = key.values() else {
+        return String::new();
     };
     for val in vals {
         if val.name().is_empty() {
@@ -173,7 +171,7 @@ fn read_default_value(key: &winreg_core::key::Key<'_>) -> String {
     String::new()
 }
 
-/// Try to look up the CLSID InprocServer32 default value in the HKCR hive.
+/// Try to look up the CLSID `InprocServer32` default value in the HKCR hive.
 ///
 /// Tries multiple path prefixes to handle both SOFTWARE hives and USRCLASS.DAT.
 fn read_hkcr_server(hkcr_hive: &Hive<Cursor<Vec<u8>>>, clsid: &str) -> String {

@@ -7,8 +7,8 @@
 //! the hive under analysis, opens the descriptor's key, and emits the decoded
 //! value(s).
 //!
-//! winreg-core owns the registry-specific byte mechanics (REG_SZ is UTF-16LE on
-//! disk, REG_DWORD is little-endian, …); the catalog owns the *meaning*. The two
+//! winreg-core owns the registry-specific byte mechanics (`REG_SZ` is UTF-16LE on
+//! disk, `REG_DWORD` is little-endian, …); the catalog owns the *meaning*. The two
 //! meet here: the catalog's [`Decoder`] selects how winreg-core renders the
 //! bytes, and the catalog supplies the path, label, MITRE mapping, and id.
 //!
@@ -37,7 +37,7 @@
 //! or more variable segments ranging over a domain, expanded to concrete paths
 //! tagged with [`crate::path_expansion::Binding`]s for provenance.
 //!
-//! Complex binary artifacts (UserAssist, Shimcache/AppCompatCache, Amcache,
+//! Complex binary artifacts (`UserAssist`, Shimcache/AppCompatCache, Amcache,
 //! ShellBags, SAM) keep their dedicated decoders in the sibling modules; this
 //! scanner flags such hits via [`CatalogHit::needs_specialized_decoder`] and
 //! renders a best-effort placeholder, so callers can route to the right module.
@@ -73,7 +73,7 @@ pub struct CatalogHit {
     /// MITRE ATT&CK techniques associated with the artifact (catalog-supplied).
     pub mitre_techniques: &'static [&'static str],
     /// `true` when the artifact needs one of the specialized binary decoders
-    /// (UserAssist, Shimcache, …) rather than this generic value renderer.
+    /// (`UserAssist`, Shimcache, …) rather than this generic value renderer.
     pub needs_specialized_decoder: bool,
     /// The user this hit is attributed to, or `None` for machine-wide hives
     /// (SYSTEM/SOFTWARE/SAM/SECURITY) scanned via [`scan`].

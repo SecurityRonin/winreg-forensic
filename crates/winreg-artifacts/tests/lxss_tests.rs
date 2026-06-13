@@ -5,18 +5,18 @@
 //! the implementation is complete.
 //!
 //! Registry path: NTUSER.DAT → Software\Microsoft\Windows\CurrentVersion\Lxss
-//! One subkey per distro (GUID-named); root key holds DefaultDistribution.
+//! One subkey per distro (GUID-named); root key holds `DefaultDistribution`.
 
 mod common;
 
 use common::hive_builder::TestHiveBuilder;
-use winreg_artifacts::lxss::{parse, DistroState, DistroVersion, LxssDistro};
+use winreg_artifacts::lxss::{parse, DistroState, DistroVersion};
 use winreg_core::hive::Hive;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn utf16le(s: &str) -> Vec<u8> {
-    let mut out: Vec<u8> = s.encode_utf16().flat_map(|c| c.to_le_bytes()).collect();
+    let mut out: Vec<u8> = s.encode_utf16().flat_map(u16::to_le_bytes).collect();
     out.extend_from_slice(&[0x00, 0x00]);
     out
 }

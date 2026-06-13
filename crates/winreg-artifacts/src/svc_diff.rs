@@ -120,14 +120,12 @@ pub fn classify_service(
 /// extracts relevant values (with safe defaults for missing values), classifies
 /// each entry, and returns the full list (both suspicious and benign).
 pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<ServiceEntry> {
-    let services_key = match hive.open_key(SERVICES_KEY) {
-        Ok(Some(k)) => k,
-        _ => return Vec::new(),
+    let Ok(Some(services_key)) = hive.open_key(SERVICES_KEY) else {
+        return Vec::new();
     };
 
-    let subkeys = match services_key.subkeys() {
-        Ok(k) => k,
-        Err(_) => return Vec::new(),
+    let Ok(subkeys) = services_key.subkeys() else {
+        return Vec::new();
     };
 
     let mut entries = Vec::with_capacity(subkeys.len());

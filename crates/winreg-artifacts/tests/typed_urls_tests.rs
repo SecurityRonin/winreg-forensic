@@ -13,14 +13,14 @@ use winreg_core::hive::Hive;
 // ── Helper: encode a string as UTF-16LE with null terminator ─────────────────
 
 fn utf16le(s: &str) -> Vec<u8> {
-    let mut out: Vec<u8> = s.encode_utf16().flat_map(|c| c.to_le_bytes()).collect();
+    let mut out: Vec<u8> = s.encode_utf16().flat_map(u16::to_le_bytes).collect();
     out.extend_from_slice(&[0x00, 0x00]); // null terminator
     out
 }
 
 /// Build a FILETIME (u64 LE) for a known timestamp.
 /// Using Windows FILETIME for 2023-01-15 12:00:00 UTC:
-/// (2023-01-15 12:00:00 UTC) = 133_183_968_000_000_000 in FILETIME units
+/// (2023-01-15 12:00:00 UTC) = `133_183_968_000_000_000` in FILETIME units
 fn sample_filetime() -> Vec<u8> {
     133_183_968_000_000_000u64.to_le_bytes().to_vec()
 }

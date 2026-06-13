@@ -1,10 +1,10 @@
-//! ShimCache (AppCompatCache) registry artifact extractor.
+//! ShimCache (`AppCompatCache`) registry artifact extractor.
 //!
 //! ShimCache is stored in the SYSTEM hive and records application execution
 //! metadata for compatibility checking. It is evidence of program execution.
 //!
 //! Key path: `SYSTEM\CurrentControlSet\Control\Session Manager\AppCompatCache`
-//! Value name: `AppCompatCache` (REG_BINARY)
+//! Value name: `AppCompatCache` (`REG_BINARY`)
 
 use std::io::Cursor;
 
@@ -21,14 +21,14 @@ use forensicnomicon::appcompatcache as fmt;
 // Output type
 // ---------------------------------------------------------------------------
 
-/// A single entry decoded from the AppCompatCache (ShimCache) binary blob.
+/// A single entry decoded from the `AppCompatCache` (ShimCache) binary blob.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ShimcacheEntry {
     /// Executable path extracted from the cache entry. Empty if unparseable.
     pub path: String,
     /// Last modified time as ISO 8601, or `None` if unavailable.
     pub last_modified: Option<String>,
-    /// Size of the raw `AppCompatCache` REG_BINARY blob.
+    /// Size of the raw `AppCompatCache` `REG_BINARY` blob.
     pub raw_size: usize,
     /// Position in the cache (0 = most recently executed).
     pub entry_index: usize,
@@ -38,7 +38,7 @@ pub struct ShimcacheEntry {
 // Key / value paths
 // ---------------------------------------------------------------------------
 
-/// Key path suffix below the ControlSet (`CurrentControlSet` on live hives,
+/// Key path suffix below the `ControlSet` (`CurrentControlSet` on live hives,
 /// `ControlSet00N` on offline ones).
 const APPCOMPAT_SUFFIX: &str = "Control\\Session Manager\\AppCompatCache";
 const APPCOMPAT_VALUE: &str = "AppCompatCache";
@@ -71,7 +71,7 @@ enum EntryBodyLayout {
 
 /// Extract ShimCache entries from a SYSTEM hive.
 ///
-/// Resolves the active ControlSet, then reads
+/// Resolves the active `ControlSet`, then reads
 /// `<ControlSet>\Control\Session Manager\AppCompatCache`. Live hives expose a
 /// `CurrentControlSet` symlink; **offline** hives do not — they carry
 /// `ControlSet00N` selected by `Select\Current`, so we resolve that.
@@ -97,12 +97,11 @@ pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<ShimcacheEntry> {
         format!("ControlSet{current:03}\\{APPCOMPAT_SUFFIX}"),
         format!("ControlSet001\\{APPCOMPAT_SUFFIX}"),
     ];
-    let key = match candidates
+    let Some(key) = candidates
         .iter()
         .find_map(|p| hive.open_key(p).ok().flatten())
-    {
-        Some(k) => k,
-        None => return Vec::new(),
+    else {
+        return Vec::new();
     };
 
     // Read the REG_BINARY value.
@@ -179,7 +178,7 @@ pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<ShimcacheEntry> {
     }]
 }
 
-/// Parse a stream of Win10 `"10ts"` AppCompatCache entries beginning at `start`.
+/// Parse a stream of Win10 `"10ts"` `AppCompatCache` entries beginning at `start`.
 ///
 /// Each entry: `"10ts" | unknown(4) | ce_data_size(4) | body[ce_data_size]`,
 /// where the body is `path_size(2) | path(UTF-16LE) | FILETIME(8) | data_size(4)
@@ -278,7 +277,7 @@ fn decode_win10_entry_body(body: &[u8], layout: EntryBodyLayout) -> (String, Opt
 // Win10 parser
 // ---------------------------------------------------------------------------
 
-/// Parse the Windows 10 AppCompatCache format.
+/// Parse the Windows 10 `AppCompatCache` format.
 ///
 /// Header (128 bytes):
 ///   Bytes 0-3:   signature `0x73743031` ("10ts" LE)
@@ -291,16 +290,16 @@ fn decode_win10_entry_body(body: &[u8], layout: EntryBodyLayout) -> (String, Opt
 ///   Then entry body (variable):
 ///     Bytes 0-1:  path length in bytes (u16 LE)
 ///     Bytes 2-7:  padding / reserved
-///     Bytes 8-15: LastModifiedTime (FILETIME, u64 LE)
+///     Bytes 8-15: `LastModifiedTime` (FILETIME, u64 LE)
 ///     Bytes 16-17: path data offset within the entry body (u16 LE, often 0x20)
-///     ... path data (UTF-16LE) at body offset indicated by path_offset_in_body
+///     ... path data (UTF-16LE) at body offset indicated by `path_offset_in_body`
 ///
 /// In practice the layout is approximately:
-///   entry_data_len (from header) bytes of body, containing:
-///     [0..2]   path_len  (u16 LE) — byte count of UTF-16LE path
-///     [8..16]  last_modified (u64 LE FILETIME)
-///     [16..18] path_offset   (u16 LE) — offset within body to the path data
-///     [path_offset .. path_offset + path_len] path bytes (UTF-16LE)
+///   `entry_data_len` (from header) bytes of body, containing:
+///     [0..2]   `path_len`  (u16 LE) — byte count of UTF-16LE path
+///     [8..16]  `last_modified` (u64 LE FILETIME)
+///     [16..18] `path_offset`   (u16 LE) — offset within body to the path data
+///     [`path_offset` .. `path_offset` + `path_len`] path bytes (UTF-16LE)
 fn parse_win10(blob: &[u8], raw_size: usize) -> Vec<ShimcacheEntry> {
     // The cache header is 128 bytes for Win10.
     const HEADER_SIZE: usize = 128;
@@ -366,9 +365,9 @@ fn parse_win10(blob: &[u8], raw_size: usize) -> Vec<ShimcacheEntry> {
 /// Decode a single Win10 entry body.
 ///
 /// Layout (best-effort; fields may be absent for short bodies):
-///   [0..2]   path_len  (u16 LE) — byte count of the UTF-16LE path
-///   [8..16]  last_modified (u64 LE FILETIME)
-///   [16..18] path_data_offset (u16 LE) — offset within body to path bytes
+///   [0..2]   `path_len`  (u16 LE) — byte count of the UTF-16LE path
+///   [8..16]  `last_modified` (u64 LE FILETIME)
+///   [16..18] `path_data_offset` (u16 LE) — offset within body to path bytes
 fn decode_entry_body(body: &[u8]) -> (String, Option<String>) {
     if body.len() < 2 {
         return (String::new(), None);
@@ -377,7 +376,7 @@ fn decode_entry_body(body: &[u8]) -> (String, Option<String>) {
     let path_len = u16::from_le_bytes([body[0], body[1]]) as usize;
 
     let last_modified: Option<String> = if body.len() >= 16 {
-        let ft = winreg_core::bytes::le_u64(&body[..], 8);
+        let ft = winreg_core::bytes::le_u64(body, 8);
         filetime_to_datetime(ft).map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())
     } else {
         None
@@ -408,5 +407,5 @@ fn decode_utf16le(data: &[u8]) -> String {
         Some(pos) => &u16s[..pos],
         None => &u16s,
     };
-    String::from_utf16_lossy(trimmed).to_owned()
+    String::from_utf16_lossy(trimmed).clone()
 }

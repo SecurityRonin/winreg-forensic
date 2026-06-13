@@ -9,10 +9,10 @@
 //!
 //! Key paths (SECURITY hive):
 //! - `SECURITY\Policy\Secrets` — subkeys are secret names
-//! - `SECURITY\Policy\Secrets\<name>\CurrVal` — REG_BINARY encrypted current value
-//! - `SECURITY\Policy\Secrets\<name>\OldVal`  — REG_BINARY encrypted old value
+//! - `SECURITY\Policy\Secrets\<name>\CurrVal` — `REG_BINARY` encrypted current value
+//! - `SECURITY\Policy\Secrets\<name>\OldVal`  — `REG_BINARY` encrypted old value
 //! - `SECURITY\Cache`       — DCC2 cache
-//! - `SECURITY\Cache\NL$1 .. NL$10` — REG_BINARY cached credential slots
+//! - `SECURITY\Cache\NL$1 .. NL$10` — `REG_BINARY` cached credential slots
 
 use std::io::Cursor;
 
@@ -70,12 +70,11 @@ pub fn is_interesting_secret(name: &str) -> bool {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/// Read the first REG_BINARY value under a key and return its byte length.
+/// Read the first `REG_BINARY` value under a key and return its byte length.
 /// Returns 0 if the key is absent or has no values.
 fn read_binary_value_size(hive: &Hive<Cursor<Vec<u8>>>, key_path: &str) -> usize {
-    let key = match hive.open_key(key_path) {
-        Ok(Some(k)) => k,
-        _ => return 0,
+    let Ok(Some(key)) = hive.open_key(key_path) else {
+        return 0;
     };
     // Try the named "(default)" value first, then fall back to the first value.
     if let Ok(values) = key.values() {
@@ -94,14 +93,12 @@ fn read_binary_value_size(hive: &Hive<Cursor<Vec<u8>>>, key_path: &str) -> usize
 ///
 /// Does NOT decrypt — returns names and sizes only.
 pub fn parse_secrets(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<LsaSecretEntry> {
-    let secrets_key = match hive.open_key("Policy\\Secrets") {
-        Ok(Some(k)) => k,
-        _ => return Vec::new(),
+    let Ok(Some(secrets_key)) = hive.open_key("Policy\\Secrets") else {
+        return Vec::new();
     };
 
-    let subkeys = match secrets_key.subkeys() {
-        Ok(k) => k,
-        Err(_) => return Vec::new(),
+    let Ok(subkeys) = secrets_key.subkeys() else {
+        return Vec::new();
     };
 
     let mut entries = Vec::with_capacity(subkeys.len());
@@ -134,14 +131,12 @@ pub fn parse_secrets(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<LsaSecretEntry> {
 
 /// Enumerate DCC2 cache slot occupancy from `SECURITY\Cache`.
 pub fn parse_dcc2_slots(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<Dcc2SlotEntry> {
-    let cache_key = match hive.open_key("Cache") {
-        Ok(Some(k)) => k,
-        _ => return Vec::new(),
+    let Ok(Some(cache_key)) = hive.open_key("Cache") else {
+        return Vec::new();
     };
 
-    let subkeys = match cache_key.subkeys() {
-        Ok(k) => k,
-        Err(_) => return Vec::new(),
+    let Ok(subkeys) = cache_key.subkeys() else {
+        return Vec::new();
     };
 
     let mut slots = Vec::with_capacity(subkeys.len());
@@ -154,8 +149,7 @@ pub fn parse_dcc2_slots(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<Dcc2SlotEntry> {
             values
                 .into_iter()
                 .find_map(|v| v.raw_data().ok())
-                .map(|d| d.len())
-                .unwrap_or(0)
+                .map_or(0, |d| d.len())
         } else {
             0
         };

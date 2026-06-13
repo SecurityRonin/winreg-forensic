@@ -14,12 +14,12 @@ use winreg_core::hive::Hive;
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Base path for InventoryApplicationFile entries.
+/// Base path for `InventoryApplicationFile` entries.
 const IAF_PATH: &str = "Root\\InventoryApplicationFile";
 
 /// Encode a string as UTF-16LE bytes (with null terminator).
 fn utf16le(s: &str) -> Vec<u8> {
-    let mut out: Vec<u8> = s.encode_utf16().flat_map(|c| c.to_le_bytes()).collect();
+    let mut out: Vec<u8> = s.encode_utf16().flat_map(u16::to_le_bytes).collect();
     out.push(0);
     out.push(0);
     out

@@ -39,16 +39,14 @@ pub struct RegistryValueInfo {
 
 /// Walk all keys in the hive (BFS order), returning metadata for each.
 pub fn walk_keys(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<RegistryKeyInfo> {
-    let iter = match hive.iter_bfs() {
-        Ok(it) => it,
-        Err(_) => return Vec::new(),
+    let Ok(iter) = hive.iter_bfs() else {
+        return Vec::new();
     };
 
     let mut result = Vec::new();
     for item in iter {
-        let key = match item {
-            Ok(k) => k,
-            Err(_) => continue,
+        let Ok(key) = item else {
+            continue;
         };
 
         let path = if key.is_root() {
@@ -77,35 +75,31 @@ pub fn walk_keys(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<RegistryKeyInfo> {
 ///
 /// Returns an empty `Vec` if the path is not found or the key has no values.
 pub fn walk_values(hive: &Hive<Cursor<Vec<u8>>>, key_path: &str) -> Vec<RegistryValueInfo> {
-    let key = match hive.open_key(key_path) {
-        Ok(Some(k)) => k,
-        _ => return Vec::new(),
+    let Ok(Some(key)) = hive.open_key(key_path) else {
+        return Vec::new();
     };
 
-    let values = match key.values() {
-        Ok(v) => v,
-        Err(_) => return Vec::new(),
+    let Ok(values) = key.values() else {
+        return Vec::new();
     };
 
     values
         .into_iter()
-        .map(|v| value_to_info(v, key_path))
+        .map(|v| value_to_info(&v, key_path))
         .collect()
 }
 
 /// Walk all keys AND their values recursively (BFS), returning a `RegistryValueInfo`
 /// for every value in the hive.
 pub fn walk_all_values(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<RegistryValueInfo> {
-    let iter = match hive.iter_bfs() {
-        Ok(it) => it,
-        Err(_) => return Vec::new(),
+    let Ok(iter) = hive.iter_bfs() else {
+        return Vec::new();
     };
 
     let mut result = Vec::new();
     for item in iter {
-        let key = match item {
-            Ok(k) => k,
-            Err(_) => continue,
+        let Ok(key) = item else {
+            continue;
         };
 
         let key_path = if key.is_root() {
@@ -114,13 +108,12 @@ pub fn walk_all_values(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<RegistryValueInfo> {
             key.path().unwrap_or_default()
         };
 
-        let values = match key.values() {
-            Ok(v) => v,
-            Err(_) => continue,
+        let Ok(values) = key.values() else {
+            continue;
         };
 
         for v in values {
-            result.push(value_to_info(v, &key_path));
+            result.push(value_to_info(&v, &key_path));
         }
     }
     result
@@ -129,10 +122,10 @@ pub fn walk_all_values(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<RegistryValueInfo> {
 // ── Internal helpers ────────────────────────────────────────────────────────
 
 /// Convert a `winreg_core::value::Value` into a `RegistryValueInfo`.
-fn value_to_info(v: winreg_core::value::Value<'_>, key_path: &str) -> RegistryValueInfo {
+fn value_to_info(v: &winreg_core::value::Value<'_>, key_path: &str) -> RegistryValueInfo {
     let data_type = v.data_type().to_string();
     let raw_size = v.data_size() as usize;
-    let data_preview = build_preview(&v);
+    let data_preview = build_preview(v);
 
     RegistryValueInfo {
         key_path: key_path.to_string(),
