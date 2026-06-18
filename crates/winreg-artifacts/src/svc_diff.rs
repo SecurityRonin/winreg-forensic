@@ -39,6 +39,9 @@ pub struct ServiceEntry {
     pub is_suspicious: bool,
     /// Human-readable explanation when `is_suspicious` is `true`.
     pub suspicious_reason: Option<String>,
+    /// The service key's `LastWriteTime` — approximately the service
+    /// install/modify time. `None` when the key carries no timestamp.
+    pub last_written: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 // ── Classification ────────────────────────────────────────────────────────────
@@ -206,6 +209,7 @@ pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<ServiceEntry> {
             description,
             is_suspicious,
             suspicious_reason,
+            last_written: svc_key.last_written(),
         });
     }
 
