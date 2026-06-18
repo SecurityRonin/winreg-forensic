@@ -28,6 +28,8 @@ const BIG_DATA_SEGMENT_SIZE: usize = 16344;
 pub struct TestHiveBuilder {
     keys: Vec<String>,
     values: Vec<TestValue>,
+    /// FILETIME written as every key's `last_written` (0 = unset → parses to None).
+    key_filetime: u64,
 }
 
 struct TestValue {
@@ -42,7 +44,15 @@ impl TestHiveBuilder {
         Self {
             keys: Vec::new(),
             values: Vec::new(),
+            key_filetime: 0,
         }
+    }
+
+    /// Set the `last_written` FILETIME written into every key node (for testing
+    /// parsers that surface registry key timestamps). 0 (default) parses to None.
+    pub fn with_key_times(mut self, filetime: u64) -> Self {
+        self.key_filetime = filetime;
+        self
     }
 
     /// Add a key by backslash-separated path. Parents are created automatically.
@@ -69,6 +79,7 @@ impl TestHiveBuilder {
 
         // --- Step 2: First pass — allocate cells ------------------------------
         let mut alloc = Allocator::new();
+        alloc.key_filetime = self.key_filetime;
 
         // SK cell (single, shared by all keys)
         let sk_id = alloc.alloc_sk(&MINIMAL_SD);
@@ -651,6 +662,8 @@ struct AllocatedCell {
 struct Allocator {
     pos: usize,
     cells: Vec<AllocatedCell>,
+    /// FILETIME stamped into every `nk` cell's `last_written` field.
+    key_filetime: u64,
 }
 
 impl Allocator {
@@ -658,6 +671,7 @@ impl Allocator {
         Self {
             pos: 0,
             cells: Vec::new(),
+            key_filetime: 0,
         }
     }
 
@@ -706,7 +720,7 @@ impl Allocator {
         let mut body = Vec::with_capacity(2 + 74 + name.len());
         body.extend_from_slice(b"nk");
         body.extend_from_slice(&flags.to_le_bytes()); // flags
-        body.extend_from_slice(&0u64.to_le_bytes()); // last_written
+        body.extend_from_slice(&self.key_filetime.to_le_bytes()); // last_written
         body.extend_from_slice(&0u32.to_le_bytes()); // access_bits
         body.extend_from_slice(&0xFFFF_FFFFu32.to_le_bytes()); // parent (placeholder)
         body.extend_from_slice(&0u32.to_le_bytes()); // subkey_count (placeholder)

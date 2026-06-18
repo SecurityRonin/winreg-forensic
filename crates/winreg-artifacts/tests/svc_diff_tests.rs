@@ -90,6 +90,40 @@ fn parse_service_returns_entry() {
     assert_eq!(entries[0].name, "Dnscache");
 }
 
+#[test]
+fn parse_surfaces_service_key_last_written() {
+    // The service key's LastWriteTime ≈ the service install/modify time — the
+    // forensic timestamp for "when was this service created" (e.g. coreupdater).
+    // FILETIME for 2020-09-19T03:40:00Z (Case-001 era).
+    const FT: u64 = 132_449_604_000_000_000;
+    let svc = svc_key("coreupdater");
+    let data = TestHiveBuilder::new()
+        .with_key_times(FT)
+        .add_key(&svc)
+        .add_value(
+            &svc,
+            "ImagePath",
+            REG_SZ,
+            &reg_sz(r"C:\Windows\System32\coreupdater.exe"),
+        )
+        .add_value(&svc, "Start", REG_DWORD, &reg_dword(2))
+        .build();
+    let hive = Hive::from_bytes(data).unwrap();
+    let entries = parse(&hive);
+    let e = entries
+        .iter()
+        .find(|e| e.name == "coreupdater")
+        .expect("entry");
+    let lw = e
+        .last_written
+        .expect("service entry must carry its key LastWriteTime");
+    assert_eq!(
+        lw.timestamp(),
+        1_600_486_800,
+        "decoded FILETIME → 2020-09-19T03:40:00Z"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Regression: real OFFLINE hive layout (no volatile CurrentControlSet)
 //
