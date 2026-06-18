@@ -91,6 +91,41 @@ fn parse_service_returns_entry() {
 }
 
 // ---------------------------------------------------------------------------
+// Regression: real OFFLINE hive layout (no volatile CurrentControlSet)
+//
+// Offline SYSTEM hives have NO `CurrentControlSet` — it is a volatile symlink the
+// running kernel materializes from `Select\Current`. A dead-box hive has
+// `ControlSet001` (+ `Select\Current` = the active set number). `parse` must
+// resolve `Select\Current` → `ControlSet00N\Services`, or it returns ZERO on
+// every offline image (the primary forensic use case). The other tests build a
+// synthetic `CurrentControlSet`, which masked this bug.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn parse_resolves_offline_controlset_via_select() {
+    let svc = r"ControlSet001\Services\Dnscache";
+    let data = TestHiveBuilder::new()
+        .add_key("Select")
+        .add_value("Select", "Current", REG_DWORD, &reg_dword(1))
+        .add_key(svc)
+        .add_value(
+            svc,
+            "ImagePath",
+            REG_SZ,
+            &reg_sz(r"C:\Windows\system32\svchost.exe"),
+        )
+        .add_value(svc, "Start", REG_DWORD, &reg_dword(2))
+        .build();
+    let hive = Hive::from_bytes(data).unwrap();
+    let entries = parse(&hive);
+    assert!(
+        !entries.is_empty(),
+        "offline layout (ControlSet001 + Select\\Current) must yield services"
+    );
+    assert_eq!(entries[0].name, "Dnscache");
+}
+
+// ---------------------------------------------------------------------------
 // Test 3: parse_image_path_extracted
 // ---------------------------------------------------------------------------
 
