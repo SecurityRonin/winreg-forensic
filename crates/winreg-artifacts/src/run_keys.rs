@@ -54,6 +54,9 @@ pub struct RunKeyEntry {
     pub is_suspicious: bool,
     /// Human-readable explanation when `is_suspicious` is `true`.
     pub suspicious_reason: Option<String>,
+    /// The Run key's `LastWriteTime` — approximately when this autorun entry
+    /// was last written. `None` when the key carries no timestamp.
+    pub last_written: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 // ── Classification ────────────────────────────────────────────────────────────
@@ -170,6 +173,8 @@ pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<RunKeyEntry> {
             continue;
         };
 
+        let last_written = key.last_written();
+
         for val in values {
             let command = val.as_string().unwrap_or_default();
             let suspicious_reason = classify_run_entry(&command);
@@ -181,12 +186,14 @@ pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<RunKeyEntry> {
                 command,
                 is_suspicious,
                 suspicious_reason,
+                last_written,
             });
         }
     }
 
     // Enumerate Winlogon persistence values.
     if let Ok(Some(winlogon)) = hive.open_key(winlogon_path) {
+        let last_written = winlogon.last_written();
         for &vname in WINLOGON_VALUES {
             let Ok(Some(val)) = winlogon.value(vname) else {
                 continue;
@@ -201,6 +208,7 @@ pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<RunKeyEntry> {
                 command,
                 is_suspicious,
                 suspicious_reason,
+                last_written,
             });
         }
     }

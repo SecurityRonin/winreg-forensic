@@ -24,6 +24,9 @@ pub struct ComHijackInfo {
     pub is_suspicious: bool,
     /// Human-readable explanation when `is_suspicious` is `true`.
     pub suspicious_reason: Option<String>,
+    /// The CLSID GUID key's `LastWriteTime` — approximately when this COM
+    /// registration was written. `None` when the key carries no timestamp.
+    pub last_written: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 // ── Classification ────────────────────────────────────────────────────────────
@@ -110,6 +113,7 @@ pub fn parse_pair(
             hkcr_server,
             is_suspicious,
             suspicious_reason,
+            last_written: guid_key.last_written(),
         });
     }
 
@@ -150,6 +154,7 @@ pub fn parse_hkcu_only(hku_hive: &Hive<Cursor<Vec<u8>>>) -> Vec<ComHijackInfo> {
             hkcr_server: String::new(),
             is_suspicious,
             suspicious_reason,
+            last_written: guid_key.last_written(),
         });
     }
 

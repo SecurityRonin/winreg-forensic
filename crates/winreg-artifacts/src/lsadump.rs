@@ -37,6 +37,9 @@ pub struct LsaSecretEntry {
     pub old_size: usize,
     /// `true` for well-known forensically significant secret names.
     pub is_interesting: bool,
+    /// The secret name key's `LastWriteTime` — approximately when this secret
+    /// was last rotated. `None` when the key carries no timestamp.
+    pub last_written: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// Occupancy metadata for a single DCC2 cache slot under `SECURITY\Cache`.
@@ -48,6 +51,9 @@ pub struct Dcc2SlotEntry {
     pub is_populated: bool,
     /// Byte length of the slot value.
     pub data_size: usize,
+    /// The slot subkey's `LastWriteTime` — approximately when this cached
+    /// credential was last written. `None` when the key carries no timestamp.
+    pub last_written: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 // ── Classifier ────────────────────────────────────────────────────────────────
@@ -123,6 +129,7 @@ pub fn parse_secrets(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<LsaSecretEntry> {
             curr_size,
             old_size,
             is_interesting,
+            last_written: secret_key.last_written(),
         });
     }
 
@@ -158,6 +165,7 @@ pub fn parse_dcc2_slots(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<Dcc2SlotEntry> {
             slot_name,
             is_populated: data_size > 0,
             data_size,
+            last_written: slot_key.last_written(),
         });
     }
 

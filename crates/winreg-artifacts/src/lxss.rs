@@ -31,6 +31,10 @@ pub struct LxssDistro {
     pub version: DistroVersion,
     pub default_uid: Option<u32>,
     pub is_default: bool,
+    /// The distro GUID subkey's `LastWriteTime` — approximately when WSL
+    /// registered or updated this distro. `None` when the key carries no
+    /// timestamp.
+    pub last_written: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl LxssDistro {
@@ -141,6 +145,7 @@ pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<LxssDistro> {
             version,
             default_uid,
             is_default,
+            last_written: subkey.last_written(),
         });
     }
 

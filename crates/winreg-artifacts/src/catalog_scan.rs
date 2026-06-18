@@ -84,6 +84,9 @@ pub struct CatalogHit {
     /// Every variable resolution that produced this hit, for provenance — the
     /// expanded subkey name(s), the active `ControlSet00N`, and/or the user.
     pub bindings: Vec<Binding>,
+    /// The resolved key's `LastWriteTime` — approximately when this artifact
+    /// value was last written. `None` when the key carries no timestamp.
+    pub last_written: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// Identity of the user a per-user [`CatalogHit`] is attributed to.
@@ -323,6 +326,7 @@ fn emit_key(
     bindings: &[Binding],
     hits: &mut Vec<CatalogHit>,
 ) {
+    let last_written = key.last_written();
     if let Some(vname) = descriptor.value_name {
         // Single named value.
         if let Ok(Some(val)) = key.value(vname) {
@@ -332,6 +336,7 @@ fn emit_key(
                 Some(vname.to_string()),
                 &val,
                 bindings,
+                last_written,
             ));
         }
     } else {
@@ -344,6 +349,7 @@ fn emit_key(
                 Some(val.name()),
                 &val,
                 bindings,
+                last_written,
             ));
         }
     }
@@ -483,6 +489,7 @@ fn make_hit(
     value_name: Option<String>,
     val: &Value<'_>,
     bindings: &[Binding],
+    last_written: Option<chrono::DateTime<chrono::Utc>>,
 ) -> CatalogHit {
     let (value_data, specialized) = render_value(descriptor.decoder, val);
     CatalogHit {
@@ -498,6 +505,7 @@ fn make_hit(
         // machine scans leave it `None`.
         user: None,
         bindings: bindings.to_vec(),
+        last_written,
     }
 }
 
