@@ -78,7 +78,7 @@ pub fn parse_pair(
 ) -> Vec<ComHijackInfo> {
     let mut results = Vec::new();
 
-    let Ok(Some(clsid_key)) = hku_hive.open_key("Software\\Classes\\CLSID") else {
+    let Some(clsid_key) = open_user_clsid_key(hku_hive) else {
         return results;
     };
 
@@ -122,7 +122,7 @@ pub fn parse_pair(
 pub fn parse_hkcu_only(hku_hive: &Hive<Cursor<Vec<u8>>>) -> Vec<ComHijackInfo> {
     let mut results = Vec::new();
 
-    let Ok(Some(clsid_key)) = hku_hive.open_key("Software\\Classes\\CLSID") else {
+    let Some(clsid_key) = open_user_clsid_key(hku_hive) else {
         return results;
     };
 
@@ -157,6 +157,15 @@ pub fn parse_hkcu_only(hku_hive: &Hive<Cursor<Vec<u8>>>) -> Vec<ComHijackInfo> {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/// Open the per-user CLSID enumeration key, trying each hive layout in turn:
+/// NTUSER.DAT `Software\Classes\CLSID` (rare), SOFTWARE/HKCR `Classes\CLSID`,
+/// and UsrClass.dat root `CLSID` — the real Win10 per-user COM home.
+fn open_user_clsid_key(hive: &Hive<Cursor<Vec<u8>>>) -> Option<winreg_core::key::Key<'_>> {
+    ["Software\\Classes\\CLSID", "Classes\\CLSID", "CLSID"]
+        .iter()
+        .find_map(|path| hive.open_key(path).ok().flatten())
+}
 
 /// Read the default (empty-name) value from a key as a string.
 fn read_default_value(key: &winreg_core::key::Key<'_>) -> String {
