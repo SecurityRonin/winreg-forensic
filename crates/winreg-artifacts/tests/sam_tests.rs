@@ -61,9 +61,12 @@ const FILETIME_2024: u64 = 133_485_408_000_000_000;
 fn build_sam_hive_one_user(username: &str, rid_hex: &str, f_record: &[u8]) -> Vec<u8> {
     let names_path = format!("SAM\\Domains\\Account\\Users\\Names\\{username}");
     let rid_path = format!("SAM\\Domains\\Account\\Users\\{rid_hex}");
+    // Real SAM layout: the RID is the TYPE of the Names\<username> default value.
+    let rid = u32::from_str_radix(rid_hex, 16).expect("valid hex RID");
 
     TestHiveBuilder::new()
         .add_key(&names_path)
+        .add_value(&names_path, "", rid, &[])
         .add_key(&rid_path)
         .add_value(&rid_path, "F", REG_BINARY, f_record)
         .build()
@@ -82,10 +85,15 @@ fn build_sam_hive_two_users(
     let names_path2 = format!("SAM\\Domains\\Account\\Users\\Names\\{username2}");
     let rid_path1 = format!("SAM\\Domains\\Account\\Users\\{rid_hex1}");
     let rid_path2 = format!("SAM\\Domains\\Account\\Users\\{rid_hex2}");
+    // Real SAM layout: the RID is the TYPE of each Names\<username> default value.
+    let rid1 = u32::from_str_radix(rid_hex1, 16).expect("valid hex RID");
+    let rid2 = u32::from_str_radix(rid_hex2, 16).expect("valid hex RID");
 
     TestHiveBuilder::new()
         .add_key(&names_path1)
+        .add_value(&names_path1, "", rid1, &[])
         .add_key(&names_path2)
+        .add_value(&names_path2, "", rid2, &[])
         .add_key(&rid_path1)
         .add_value(&rid_path1, "F", REG_BINARY, f1)
         .add_key(&rid_path2)

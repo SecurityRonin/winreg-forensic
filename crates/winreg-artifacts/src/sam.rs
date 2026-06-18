@@ -78,10 +78,10 @@ pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<SamUserEntry> {
             continue;
         }
 
-        // Derive RID: look for a matching hex subkey under Users\
-        // The subkey names under Users\ are uppercase 8-digit hex RIDs (e.g., "000001F4").
-        // We try to find the matching RID by scanning Users\ subkeys (excluding "Names").
-        let rid_opt = find_rid_for_username(&users_key, &username);
+        // The RID is the per-account identity, stored as the TYPE field of the
+        // `Names\<username>` default value (the canonical SAM layout); the F
+        // record lives under `Users\<RID hex>`.
+        let rid_opt = rid_and_f(&name_key, &users_key);
         let Some((rid, f_data)) = rid_opt else {
             // No matching RID found — include with defaults
             results.push(SamUserEntry {
@@ -112,39 +112,32 @@ pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<SamUserEntry> {
 /// The subkey names under `SAM\Domains\Account\Users` are 8-digit uppercase hex
 /// RID strings (e.g. `"000001F4"` for RID 500). We match by name: if the subkey
 /// name is a valid hex RID (not "Names"), read its `F` value.
-fn find_rid_for_username(
+fn rid_and_f(
+    name_key: &winreg_core::key::Key<'_>,
     users_key: &winreg_core::key::Key<'_>,
-    username: &str,
 ) -> Option<(u32, Vec<u8>)> {
-    let subkeys = users_key.subkeys().ok()?;
+    use winreg_format::flags::ValueType;
 
-    for sub in subkeys {
-        let name = sub.name();
-        if name.eq_ignore_ascii_case("Names") {
-            continue;
-        }
-        // Try to parse name as a hex RID
-        let rid = u32::from_str_radix(&name, 16).ok()?;
+    // The account's RID is the TYPE field of the `Names\<username>` default
+    // (unnamed) value — the canonical SAM layout (e.g. Administrator = 500,
+    // Guest = 501). Real RIDs (>= 500) always decode to `Unknown(rid)`.
+    let rid = match name_key.value("").ok().flatten()?.data_type() {
+        ValueType::Unknown(rid) => rid,
+        _ => return None,
+    };
 
-        // Read the F value
-        let Ok(Some(f_val)) = sub.value("F") else {
-            continue;
-        };
-        let f_data = f_val.raw_data().unwrap_or_default();
-
-        // We match the first valid hex subkey found.
-        // In a real SAM there's exactly one RID per user; in our test hive
-        // we use the RID supplied in the path.
-        // To associate username→RID correctly in tests, we check that the
-        // RID hex matches what was used for this username by re-checking
-        // that _any_ Names subkey corresponds. Since the TestHiveBuilder
-        // doesn't encode RIDs in the Names subkey's default value type field
-        // (that's an in-memory Win32 API trick), we rely on the test hive
-        // being built with one user per distinct RID.
-        let _ = username; // suppress lint — used implicitly via iteration order
-        return Some((rid, f_data));
-    }
-    None
+    // The F record lives under `Users\<RID as 8-digit uppercase hex>`.
+    let rid_hex = format!("{rid:08X}");
+    let f_data = users_key
+        .subkey(&rid_hex)
+        .ok()
+        .flatten()?
+        .value("F")
+        .ok()
+        .flatten()?
+        .raw_data()
+        .ok()?;
+    Some((rid, f_data))
 }
 
 /// Build a `SamUserEntry` by decoding the F record binary data.
