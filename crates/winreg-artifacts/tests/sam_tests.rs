@@ -259,3 +259,52 @@ fn parse_multiple_users_returns_all() {
     assert!(names.contains(&"AdminUser"), "AdminUser should be present");
     assert!(names.contains(&"GuestUser"), "GuestUser should be present");
 }
+
+/// RID must be the **per-account** identity, read from the `Names\<username>`
+/// default value's *type* field (the canonical SAM layout) — NOT the first
+/// `Users\<hex>` subkey. On a real hive the old code gave every account 0x1F4
+/// (500), so Guest (always RID 501) showed as 500.
+#[test]
+fn parse_reads_distinct_rid_per_account_from_names_type() {
+    let f = build_f_record(0, 0, 0, 0x0210, 1);
+    // Real layout: Names\<user> default value's TYPE = the RID; Users\<RID_hex>\F.
+    let data = TestHiveBuilder::new()
+        .add_key("SAM\\Domains\\Account\\Users\\Names\\Administrator")
+        .add_value(
+            "SAM\\Domains\\Account\\Users\\Names\\Administrator",
+            "",
+            500,
+            &[],
+        )
+        .add_key("SAM\\Domains\\Account\\Users\\Names\\Guest")
+        .add_value("SAM\\Domains\\Account\\Users\\Names\\Guest", "", 501, &[])
+        .add_key("SAM\\Domains\\Account\\Users\\000001F4")
+        .add_value(
+            "SAM\\Domains\\Account\\Users\\000001F4",
+            "F",
+            REG_BINARY,
+            &f,
+        )
+        .add_key("SAM\\Domains\\Account\\Users\\000001F5")
+        .add_value(
+            "SAM\\Domains\\Account\\Users\\000001F5",
+            "F",
+            REG_BINARY,
+            &f,
+        )
+        .build();
+    let hive = Hive::from_bytes(data).unwrap();
+    let results = parse(&hive);
+
+    let rid_of = |name: &str| results.iter().find(|e| e.username == name).map(|e| e.rid);
+    assert_eq!(
+        rid_of("Administrator"),
+        Some(500),
+        "Administrator is well-known RID 500"
+    );
+    assert_eq!(
+        rid_of("Guest"),
+        Some(501),
+        "Guest is well-known RID 501 — must not collapse to 500"
+    );
+}
