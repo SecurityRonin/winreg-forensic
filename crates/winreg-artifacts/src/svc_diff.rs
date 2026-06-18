@@ -120,7 +120,24 @@ pub fn classify_service(
 /// extracts relevant values (with safe defaults for missing values), classifies
 /// each entry, and returns the full list (both suspicious and benign).
 pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<ServiceEntry> {
-    let Ok(Some(services_key)) = hive.open_key(SERVICES_KEY) else {
+    // `CurrentControlSet` is a volatile symlink the running kernel builds; it is
+    // absent from offline hives. Resolve `Select\Current` → `ControlSet00N`,
+    // falling back to `ControlSet001` then the (live-only) `CurrentControlSet`.
+    let active = hive
+        .open_key("Select")
+        .ok()
+        .flatten()
+        .and_then(|k| k.value("Current").ok().flatten())
+        .and_then(|v| v.as_u32().ok())
+        .unwrap_or(1);
+    let services_key = [
+        format!("ControlSet{active:03}\\Services"),
+        "ControlSet001\\Services".to_string(),
+        SERVICES_KEY.to_string(),
+    ]
+    .iter()
+    .find_map(|path| hive.open_key(path).ok().flatten());
+    let Some(services_key) = services_key else {
         return Vec::new();
     };
 
