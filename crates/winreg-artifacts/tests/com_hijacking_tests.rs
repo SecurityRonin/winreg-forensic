@@ -70,6 +70,27 @@ fn parse_hkcu_only_returns_clsid_entry() {
 }
 
 // ---------------------------------------------------------------------------
+// Regression: real Win10 per-user CLSID layout lives in UsrClass.dat at ROOT
+// `CLSID\{guid}` — NTUSER.DAT has no `Software\Classes\CLSID`. parse_hkcu_only
+// must read the UsrClass root, or it returns zero on every real Win10 image.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn parse_hkcu_only_reads_usrclass_root_clsid() {
+    let clsid = "{00000000-0000-0000-0000-000000000001}";
+    let dll = r"C:\Users\Public\evil.dll";
+    let inproc = format!("CLSID\\{clsid}\\InprocServer32");
+    let data = TestHiveBuilder::new()
+        .add_key(&inproc)
+        .add_value(&inproc, "", REG_SZ, &utf16le(dll))
+        .build();
+    let hive = Hive::from_bytes(data).unwrap();
+    let results = parse_hkcu_only(&hive);
+    assert_eq!(results.len(), 1, "UsrClass root CLSID must be parsed");
+    assert_eq!(results[0].hkcu_server, dll);
+}
+
+// ---------------------------------------------------------------------------
 // Test 3: parse_hkcu_only_clsid_name_captured
 // ---------------------------------------------------------------------------
 
