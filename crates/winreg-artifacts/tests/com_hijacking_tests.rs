@@ -236,3 +236,38 @@ fn parse_hkcu_only_hkcr_server_is_empty() {
         "hkcr_server should be empty in parse_hkcu_only"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Test 12: parse_hkcu_only surfaces the CLSID GUID key's LastWriteTime
+// ---------------------------------------------------------------------------
+
+#[test]
+fn parse_surfaces_com_clsid_key_last_written() {
+    // The CLSID GUID key's LastWriteTime ≈ when the (hijack) registration was
+    // written — the forensic timestamp for "when was this COM object planted".
+    // FILETIME for 2020-09-19T03:40:00Z (Case-001 era).
+    const FT: u64 = 132_449_604_000_000_000;
+    let clsid = "{66666666-6666-6666-6666-666666666666}";
+    let inproc_path = format!("Software\\Classes\\CLSID\\{clsid}\\InprocServer32");
+    let data = TestHiveBuilder::new()
+        .with_key_times(FT)
+        .add_key(&inproc_path)
+        .add_value(
+            &inproc_path,
+            "",
+            REG_SZ,
+            &utf16le(r"C:\Users\victim\AppData\Roaming\evil.dll"),
+        )
+        .build();
+    let hive = Hive::from_bytes(data).unwrap();
+    let results = parse_hkcu_only(&hive);
+    assert_eq!(results.len(), 1);
+    let lw = results[0]
+        .last_written
+        .expect("COM hijack entry must carry its CLSID key LastWriteTime");
+    assert_eq!(
+        lw.timestamp(),
+        1_600_486_800,
+        "decoded FILETIME → 2020-09-19T03:40:00Z"
+    );
+}

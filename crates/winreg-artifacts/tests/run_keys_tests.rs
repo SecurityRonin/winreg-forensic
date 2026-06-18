@@ -191,3 +191,38 @@ fn hive_type_detected_for_hklm() {
         entries[0].hive
     );
 }
+
+// ── Test 12: Run-key entry surfaces the Run KEY's LastWriteTime ────────────────
+
+#[test]
+fn parse_surfaces_run_key_last_written() {
+    // The Run key's LastWriteTime ≈ when the persistence entry was last written —
+    // the forensic timestamp for "when was this autorun added/changed".
+    // FILETIME for 2020-09-19T03:40:00Z (Case-001 era).
+    const FT: u64 = 132_449_604_000_000_000;
+    let run_path = "Microsoft\\Windows\\CurrentVersion\\Run";
+    let data = TestHiveBuilder::new()
+        .with_key_times(FT)
+        .add_key(run_path)
+        .add_value(
+            run_path,
+            "MyApp",
+            1,
+            &utf16le(r"C:\Program Files\App\app.exe"),
+        )
+        .build();
+    let hive = Hive::from_bytes(data).unwrap();
+    let entries = parse(&hive);
+    let e = entries
+        .iter()
+        .find(|e| e.value_name == "MyApp")
+        .expect("entry");
+    let lw = e
+        .last_written
+        .expect("run-key entry must carry its key LastWriteTime");
+    assert_eq!(
+        lw.timestamp(),
+        1_600_486_800,
+        "decoded FILETIME → 2020-09-19T03:40:00Z"
+    );
+}

@@ -276,3 +276,63 @@ fn parse_dcc2_slots_empty_slot_not_populated() {
     );
     assert_eq!(nl2.data_size, 0);
 }
+
+// ---------------------------------------------------------------------------
+// Test: secret entry surfaces the secret name key's LastWriteTime
+// ---------------------------------------------------------------------------
+
+#[test]
+fn parse_secrets_surfaces_key_last_written() {
+    // The secret name key's LastWriteTime ≈ when the secret was last rotated —
+    // the forensic timestamp for "when did this LSA secret change".
+    // FILETIME for 2020-09-19T03:40:00Z (Case-001 era).
+    const FT: u64 = 132_449_604_000_000_000;
+    let key = secret_key("$MACHINE.ACC");
+    let data = TestHiveBuilder::new()
+        .with_key_times(FT)
+        .add_key(&key)
+        .build();
+    let hive = Hive::from_bytes(data).unwrap();
+    let entries = parse_secrets(&hive);
+    let e = entries
+        .iter()
+        .find(|e| e.name == "$MACHINE.ACC")
+        .expect("entry");
+    let lw = e
+        .last_written
+        .expect("secret entry must carry its name key LastWriteTime");
+    assert_eq!(
+        lw.timestamp(),
+        1_600_486_800,
+        "decoded FILETIME → 2020-09-19T03:40:00Z"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test: DCC2 slot entry surfaces the slot subkey's LastWriteTime
+// ---------------------------------------------------------------------------
+
+#[test]
+fn parse_dcc2_slots_surfaces_key_last_written() {
+    // The slot subkey's LastWriteTime ≈ when the cached credential was last
+    // written — the forensic timestamp for "when did this user last log on
+    // cached". FILETIME for 2020-09-19T03:40:00Z (Case-001 era).
+    const FT: u64 = 132_449_604_000_000_000;
+    let slot_path = cache_slot_key("NL$1");
+    let data = TestHiveBuilder::new()
+        .with_key_times(FT)
+        .add_key(&slot_path)
+        .add_value(&slot_path, "(default)", REG_BINARY, &fake_blob(64))
+        .build();
+    let hive = Hive::from_bytes(data).unwrap();
+    let slots = parse_dcc2_slots(&hive);
+    let s = slots.iter().find(|s| s.slot_name == "NL$1").expect("slot");
+    let lw = s
+        .last_written
+        .expect("DCC2 slot entry must carry its slot key LastWriteTime");
+    assert_eq!(
+        lw.timestamp(),
+        1_600_486_800,
+        "decoded FILETIME → 2020-09-19T03:40:00Z"
+    );
+}

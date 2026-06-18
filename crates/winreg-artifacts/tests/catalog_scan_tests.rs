@@ -358,3 +358,35 @@ fn machine_scan_hits_have_no_user_attribution() {
         "machine-hive scan() must not attribute hits to any user"
     );
 }
+
+// ── Test 11: catalog hit surfaces the resolved key's LastWriteTime ───────────
+
+#[test]
+fn scan_surfaces_key_last_written() {
+    // Each hit's key carries a LastWriteTime ≈ when the artifact value was last
+    // written — the forensic timestamp for the hit's source key.
+    // FILETIME for 2020-09-19T03:40:00Z (Case-001 era).
+    const FT: u64 = 132_449_604_000_000_000;
+    let run = r"Microsoft\Windows\CurrentVersion\Run";
+    let data = software_root(TestHiveBuilder::new())
+        .with_key_times(FT)
+        .add_key("Microsoft")
+        .add_key(run)
+        .add_value(run, "MyApp", REG_SZ, &utf16le(r"C:\app.exe"))
+        .build();
+    let hive = Hive::from_bytes(data).unwrap();
+
+    let hits = scan(&hive);
+    let hit = hits
+        .iter()
+        .find(|h| h.key_path == run && h.value_name.as_deref() == Some("MyApp"))
+        .expect("Run-key hit must surface via the catalog scan");
+    let lw = hit
+        .last_written
+        .expect("catalog hit must carry its key LastWriteTime");
+    assert_eq!(
+        lw.timestamp(),
+        1_600_486_800,
+        "decoded FILETIME → 2020-09-19T03:40:00Z"
+    );
+}

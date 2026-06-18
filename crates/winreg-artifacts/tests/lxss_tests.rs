@@ -274,3 +274,39 @@ fn vhdx_path_none_for_wsl1() {
         "WSL1 distros have no ext4.vhdx"
     );
 }
+
+// ── Test: distro entry surfaces the distro GUID subkey's LastWriteTime ────────
+
+#[test]
+fn parse_surfaces_distro_key_last_written() {
+    // The distro GUID subkey's LastWriteTime ≈ when WSL registered/updated this
+    // distro — the forensic timestamp for "when was this distro installed".
+    // FILETIME for 2020-09-19T03:40:00Z (Case-001 era).
+    const FT: u64 = 132_449_604_000_000_000;
+    let key = distro_key_path(DISTRO_GUID);
+    let data = TestHiveBuilder::new()
+        .with_key_times(FT)
+        .add_key(LXSS_PATH)
+        .add_key(&key)
+        .add_value(&key, "DistributionName", 1, &utf16le("Ubuntu-22.04"))
+        .add_value(
+            &key,
+            "BasePath",
+            1,
+            &utf16le(r"C:\Users\alice\AppData\Local\Packages\Ubuntu\LocalState"),
+        )
+        .add_value(&key, "State", 4, &dword_le(1))
+        .add_value(&key, "Version", 4, &dword_le(2))
+        .build();
+    let hive = Hive::from_bytes(data).unwrap();
+    let distros = parse(&hive);
+    assert_eq!(distros.len(), 1);
+    let lw = distros[0]
+        .last_written
+        .expect("distro entry must carry its GUID subkey LastWriteTime");
+    assert_eq!(
+        lw.timestamp(),
+        1_600_486_800,
+        "decoded FILETIME → 2020-09-19T03:40:00Z"
+    );
+}
