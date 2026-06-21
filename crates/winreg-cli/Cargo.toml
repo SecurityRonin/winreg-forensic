@@ -2,9 +2,11 @@
 name = "winreg-cli"
 version = "0.1.0"
 description = "Windows Registry forensic CLI (reg4n6)"
+authors = ["Albert Hui <albert@securityronin.com>"]
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [[bin]]
 name = "reg4n6"

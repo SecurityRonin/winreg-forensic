@@ -6,7 +6,7 @@ use winreg_format::flags::ValueType;
 mod output;
 
 #[derive(Parser)]
-#[command(name = "reg4n6", about = "Windows Registry forensic toolkit")]
+#[command(name = "reg4n6", version, about = "Windows Registry forensic toolkit")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
