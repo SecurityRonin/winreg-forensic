@@ -409,8 +409,7 @@ fn cmd_search(
 
                 let data_matched = if let Some(ref pattern) = data_pattern {
                     val.as_string()
-                        .map(|s| s.to_ascii_uppercase().contains(pattern.as_str()))
-                        .unwrap_or(false)
+                        .is_ok_and(|s| s.to_ascii_uppercase().contains(pattern.as_str()))
                 } else {
                     false
                 };

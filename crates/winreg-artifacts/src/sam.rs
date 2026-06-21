@@ -121,9 +121,8 @@ fn rid_and_f(
     // The account's RID is the TYPE field of the `Names\<username>` default
     // (unnamed) value — the canonical SAM layout (e.g. Administrator = 500,
     // Guest = 501). Real RIDs (>= 500) always decode to `Unknown(rid)`.
-    let rid = match name_key.value("").ok().flatten()?.data_type() {
-        ValueType::Unknown(rid) => rid,
-        _ => return None,
+    let ValueType::Unknown(rid) = name_key.value("").ok().flatten()?.data_type() else {
+        return None;
     };
 
     // The F record lives under `Users\<RID as 8-digit uppercase hex>`.

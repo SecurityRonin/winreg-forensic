@@ -50,6 +50,9 @@ impl TestHiveBuilder {
 
     /// Set the `last_written` FILETIME written into every key node (for testing
     /// parsers that surface registry key timestamps). 0 (default) parses to None.
+    // Shared helper used by most (not every) test binary; `common/` is compiled
+    // per-target, so the binaries that don't call it would flag dead_code.
+    #[allow(dead_code)]
     pub fn with_key_times(mut self, filetime: u64) -> Self {
         self.key_filetime = filetime;
         self
