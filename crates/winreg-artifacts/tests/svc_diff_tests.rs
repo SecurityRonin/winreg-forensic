@@ -19,6 +19,7 @@ const SERVICES_KEY: &str = "CurrentControlSet\\Services";
 
 // Registry value types
 const REG_SZ: u32 = 1;
+const REG_EXPAND_SZ: u32 = 2;
 const REG_DWORD: u32 = 4;
 
 // ---------------------------------------------------------------------------
@@ -316,6 +317,8 @@ fn classify_auto_start_no_description_non_system32_is_suspicious() {
         2,  // Auto
         "", // no description
         "LocalSystem",
+        None, // service_dll
+        None, // failure_command
     );
     assert!(
         is_suspicious,
@@ -335,10 +338,12 @@ fn classify_normal_system32_service_is_benign() {
         2,
         "Resolves and caches DNS names.",
         "NT AUTHORITY\\NetworkService",
+        Some(r"%SystemRoot%\System32\dnsrslvr.dll"),
+        None,
     );
     assert!(
         !is_suspicious,
-        "normal system32 auto-start service with description should be benign"
+        "normal system32 auto-start service with description and benign ServiceDll should be benign"
     );
 }
 
@@ -402,4 +407,294 @@ fn parse_multiple_services_returns_all() {
     assert!(names.contains(&"Dnscache"), "Dnscache should be in results");
     assert!(names.contains(&"Spooler"), "Spooler should be in results");
     assert!(names.contains(&"WSearch"), "WSearch should be in results");
+}
+
+// ---------------------------------------------------------------------------
+// Test 11: parse_service_dll_from_parameters_subkey
+//
+// A svchost-hosted (ShareProcess) service loads its real code from a DLL named
+// in `<service>\Parameters\ServiceDll`. `image_path` is just svchost.exe, so the
+// DLL is the actual persistence/implant vector (T1543.003). `parse` must surface
+// it as `service_dll`.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn parse_service_dll_from_parameters_subkey() {
+    let svc = svc_key("Dnscache");
+    let params = format!("{svc}\\Parameters");
+    let data = TestHiveBuilder::new()
+        .add_key(&svc)
+        .add_value(
+            &svc,
+            "ImagePath",
+            REG_SZ,
+            &reg_sz(r"C:\Windows\system32\svchost.exe -k NetworkService"),
+        )
+        .add_value(&svc, "Start", REG_DWORD, &reg_dword(2))
+        .add_value(&svc, "Type", REG_DWORD, &reg_dword(32))
+        .add_value(
+            &svc,
+            "ObjectName",
+            REG_SZ,
+            &reg_sz("NT AUTHORITY\\NetworkService"),
+        )
+        .add_value(&svc, "Description", REG_SZ, &reg_sz("Resolves DNS names."))
+        .add_key(&params)
+        .add_value(
+            &params,
+            "ServiceDll",
+            REG_EXPAND_SZ,
+            &reg_sz(r"%SystemRoot%\System32\dnsrslvr.dll"),
+        )
+        .build();
+    let hive = Hive::from_bytes(data).unwrap();
+    let entries = parse(&hive);
+    let e = entries
+        .iter()
+        .find(|e| e.name == "Dnscache")
+        .expect("Dnscache entry");
+    assert_eq!(
+        e.service_dll.as_deref(),
+        Some(r"%SystemRoot%\System32\dnsrslvr.dll"),
+        "service_dll should be the raw (unexpanded) Parameters\\ServiceDll value"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 12: parse_service_without_servicedll_is_none
+// ---------------------------------------------------------------------------
+
+#[test]
+fn parse_service_without_servicedll_is_none() {
+    let svc = svc_key("Spooler");
+    let data = TestHiveBuilder::new()
+        .add_key(&svc)
+        .add_value(
+            &svc,
+            "ImagePath",
+            REG_SZ,
+            &reg_sz(r"C:\Windows\system32\spoolsv.exe"),
+        )
+        .add_value(&svc, "Start", REG_DWORD, &reg_dword(2))
+        .build();
+    let hive = Hive::from_bytes(data).unwrap();
+    let entries = parse(&hive);
+    let e = entries.iter().find(|e| e.name == "Spooler").expect("entry");
+    assert_eq!(
+        e.service_dll, None,
+        "a service with no Parameters\\ServiceDll must yield None, not empty string"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 13: parse_failure_command_extracted
+//
+// `<service>\FailureCommand` is a recovery-action command line; an attacker can
+// point it at arbitrary code that runs when the service "fails". `parse` must
+// surface it as `failure_command`.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn parse_failure_command_extracted() {
+    let svc = svc_key("MSiSCSI");
+    let data = TestHiveBuilder::new()
+        .add_key(&svc)
+        .add_value(
+            &svc,
+            "ImagePath",
+            REG_SZ,
+            &reg_sz(r"C:\Windows\system32\svchost.exe -k netsvcs"),
+        )
+        .add_value(&svc, "Start", REG_DWORD, &reg_dword(3))
+        .add_value(&svc, "FailureCommand", REG_SZ, &reg_sz("customScript.cmd"))
+        .build();
+    let hive = Hive::from_bytes(data).unwrap();
+    let entries = parse(&hive);
+    let e = entries.iter().find(|e| e.name == "MSiSCSI").expect("entry");
+    assert_eq!(
+        e.failure_command.as_deref(),
+        Some("customScript.cmd"),
+        "failure_command should equal the FailureCommand value"
+    );
+}
+
+#[test]
+fn parse_service_without_failure_command_is_none() {
+    let svc = svc_key("Dnscache");
+    let data = TestHiveBuilder::new()
+        .add_key(&svc)
+        .add_value(
+            &svc,
+            "ImagePath",
+            REG_SZ,
+            &reg_sz(r"C:\Windows\system32\svchost.exe"),
+        )
+        .add_value(&svc, "Start", REG_DWORD, &reg_dword(2))
+        .build();
+    let hive = Hive::from_bytes(data).unwrap();
+    let entries = parse(&hive);
+    let e = entries
+        .iter()
+        .find(|e| e.name == "Dnscache")
+        .expect("entry");
+    assert_eq!(e.failure_command, None);
+}
+
+// ---------------------------------------------------------------------------
+// Test 14: classify applies user-writable / LOLBin rules to ServiceDll
+// ---------------------------------------------------------------------------
+
+#[test]
+fn classify_servicedll_in_user_writable_dir_is_suspicious() {
+    // ImagePath is benign svchost.exe; the DLL lives in a user-writable dir.
+    let (is_suspicious, reason) = classify_service(
+        r"C:\Windows\system32\svchost.exe -k netsvcs",
+        2,
+        "Looks legit.",
+        "LocalSystem",
+        Some(r"C:\Users\Public\evil.dll"),
+        None,
+    );
+    assert!(
+        is_suspicious,
+        "ServiceDll in a user-writable directory must be flagged suspicious"
+    );
+    let reason = reason.expect("reason");
+    assert!(
+        reason.to_ascii_lowercase().contains("servicedll")
+            || reason.to_ascii_lowercase().contains("service dll"),
+        "reason should mention ServiceDll, got: {reason}"
+    );
+}
+
+#[test]
+fn classify_servicedll_lolbin_is_suspicious() {
+    let (is_suspicious, _reason) = classify_service(
+        r"C:\Windows\system32\svchost.exe -k netsvcs",
+        2,
+        "Looks legit.",
+        "LocalSystem",
+        Some(r"C:\Windows\Temp\rundll-payload\powershell.exe"),
+        None,
+    );
+    assert!(
+        is_suspicious,
+        "a LOLBin / user-writable path in ServiceDll must be flagged"
+    );
+}
+
+#[test]
+fn classify_benign_servicedll_is_not_suspicious() {
+    let (is_suspicious, _reason) = classify_service(
+        r"C:\Windows\system32\svchost.exe -k netsvcs",
+        2,
+        "Resolves DNS.",
+        "LocalSystem",
+        Some(r"%SystemRoot%\System32\dnsrslvr.dll"),
+        None,
+    );
+    assert!(
+        !is_suspicious,
+        "a normal system32 ServiceDll must not be flagged"
+    );
+}
+
+#[test]
+fn classify_non_empty_failure_command_is_noteworthy() {
+    // Everything else benign; a configured FailureCommand alone is noteworthy.
+    let (is_suspicious, reason) = classify_service(
+        r"C:\Windows\system32\svchost.exe -k netsvcs",
+        2,
+        "Resolves DNS.",
+        "LocalSystem",
+        Some(r"%SystemRoot%\System32\dnsrslvr.dll"),
+        Some("customScript.cmd"),
+    );
+    assert!(
+        is_suspicious,
+        "a non-empty FailureCommand should be flagged as noteworthy"
+    );
+    let reason = reason.expect("reason");
+    assert!(
+        reason.to_ascii_lowercase().contains("failurecommand")
+            || reason.to_ascii_lowercase().contains("failure command")
+            || reason.to_ascii_lowercase().contains("recovery"),
+        "reason should mention FailureCommand, got: {reason}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Real-data validation (env-gated): DC01 SYSTEM hive (DFIR Madness Szechuan).
+//
+// Set WINREG_DC01_SYSTEM to the extracted DC01 SYSTEM hive to run. Skips loudly
+// when absent. This proves ServiceDll resolution works through the offline
+// `Select\Current` → `ControlSet00N` indirection on REAL svchost services —
+// something the synthetic fixtures (which build a flat layout) cannot prove.
+// Ground truth captured 2026-06-22 from md5 05cd86230d5bdbcade8fd6da1d5313a4.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn dc01_real_hive_resolves_svchost_servicedlls() {
+    let Ok(path) = std::env::var("WINREG_DC01_SYSTEM") else {
+        eprintln!(
+            "SKIP dc01_real_hive_resolves_svchost_servicedlls: \
+             set WINREG_DC01_SYSTEM to the DC01 SYSTEM hive path"
+        );
+        return;
+    };
+    let hive = Hive::from_path(std::path::Path::new(&path))
+        .expect("DC01 SYSTEM hive must open (check WINREG_DC01_SYSTEM path)");
+    let entries = parse(&hive);
+
+    let find = |name: &str| {
+        entries
+            .iter()
+            .find(|e| e.name == name)
+            .unwrap_or_else(|| panic!("service {name} not found in DC01 hive"))
+    };
+
+    // (a) Well-known svchost-hosted services resolve their real ServiceDll
+    // through the offline Select\Current indirection.
+    let dns = find("Dnscache");
+    assert_eq!(
+        dns.service_dll.as_deref(),
+        Some(r"%SystemRoot%\System32\dnsrslvr.dll"),
+        "Dnscache ServiceDll"
+    );
+    let sched = find("Schedule");
+    assert_eq!(
+        sched.service_dll.as_deref(),
+        Some(r"%systemroot%\system32\schedsvc.dll"),
+        "Task Scheduler ServiceDll"
+    );
+    let bits = find("BITS");
+    assert_eq!(
+        bits.service_dll.as_deref(),
+        Some(r"%SystemRoot%\System32\qmgr.dll"),
+        "BITS ServiceDll"
+    );
+
+    // (b) The count of services with a ServiceDll is in the expected ballpark
+    // (~111 svchost-hosted; this hive has 117 of 453).
+    let with_dll = entries.iter().filter(|e| e.service_dll.is_some()).count();
+    assert!(
+        (90..=140).contains(&with_dll),
+        "expected ~111 services with a ServiceDll, got {with_dll}"
+    );
+
+    // FailureCommand is present on a handful of services (3 on this hive).
+    let with_fc = entries
+        .iter()
+        .filter(|e| e.failure_command.is_some())
+        .count();
+    assert!(
+        with_fc >= 1,
+        "expected at least one service with a FailureCommand, got {with_fc}"
+    );
+    let iscsi = find("MSiSCSI");
+    assert_eq!(
+        iscsi.failure_command.as_deref(),
+        Some("customScript.cmd"),
+        "MSiSCSI FailureCommand"
+    );
 }
