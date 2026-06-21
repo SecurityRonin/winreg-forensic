@@ -623,6 +623,23 @@ fn classify_non_empty_failure_command_is_noteworthy() {
     );
 }
 
+#[test]
+fn classify_empty_failure_command_is_not_noteworthy() {
+    // An empty FailureCommand string is not a recovery action — must not flag.
+    let (is_suspicious, _reason) = classify_service(
+        r"C:\Windows\system32\svchost.exe -k netsvcs",
+        2,
+        "Resolves DNS.",
+        "LocalSystem",
+        Some(r"%SystemRoot%\System32\dnsrslvr.dll"),
+        Some(""),
+    );
+    assert!(
+        !is_suspicious,
+        "an empty FailureCommand must not be flagged"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Real-data validation (env-gated): DC01 SYSTEM hive (DFIR Madness Szechuan).
 //

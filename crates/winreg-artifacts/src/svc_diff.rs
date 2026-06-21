@@ -27,6 +27,15 @@ pub struct ServiceEntry {
     pub display_name: String,
     /// Path to the service binary (`ImagePath` value).
     pub image_path: String,
+    /// The DLL a shared-process / svchost-hosted service loads, read from
+    /// `Parameters\ServiceDll`. `None` when the service hosts no DLL. Kept raw
+    /// (`REG_EXPAND_SZ` env vars like `%SystemRoot%` are NOT pre-expanded),
+    /// matching how `image_path` is handled. This is the actual code a
+    /// svchost-hosted service runs — and a common persistence vector (T1543.003).
+    pub service_dll: Option<String>,
+    /// A recovery-action command line (`FailureCommand` value) run when the
+    /// service fails — abused for persistence. `None` when absent.
+    pub failure_command: Option<String>,
     /// Numeric start type: 0=Boot, 1=System, 2=Auto, 3=Manual, 4=Disabled.
     pub start_type: u32,
     /// Numeric service type: 1=KernelDriver, 2=FsDriver, 16=OwnProcess, 32=ShareProcess.
@@ -46,6 +55,31 @@ pub struct ServiceEntry {
 
 // ── Classification ────────────────────────────────────────────────────────────
 
+/// User-writable directories a system service binary/DLL should never live in.
+const USER_WRITABLE_DIRS: &[&str] = &[r"\temp\", r"\appdata\", r"\users\public\", r"\programdata\"];
+/// Interpreters/LOLBins abused for living-off-the-land persistence.
+const INTERPRETERS: &[&str] = &["cmd.exe", "powershell.exe", "wscript.exe", "mshta.exe"];
+
+/// Flag a service-loadable path (an `ImagePath` or a `ServiceDll`) that lives in
+/// a user-writable directory or names a known interpreter/LOLBin. `label` names
+/// which field is being checked so the reason is self-describing. Returns the
+/// reason string for the first matching rule, else `None`.
+fn classify_path(path_lower: &str, label: &str) -> Option<String> {
+    for suspect_dir in USER_WRITABLE_DIRS {
+        if path_lower.contains(suspect_dir) {
+            return Some(format!(
+                "{label} is in user-writable directory: {suspect_dir}"
+            ));
+        }
+    }
+    for interpreter in INTERPRETERS {
+        if path_lower.contains(interpreter) {
+            return Some(format!("{label} contains interpreter: {interpreter}"));
+        }
+    }
+    None
+}
+
 /// Classify a service entry for forensic anomalies.
 ///
 /// Returns `(is_suspicious, reason)`.
@@ -56,40 +90,37 @@ pub struct ServiceEntry {
 ///    `\programdata\` (user-writable directories, not system paths).
 /// 2. `image_path` contains `cmd.exe`, `powershell.exe`, `wscript.exe`, or
 ///    `mshta.exe` (interpreters abused for living-off-the-land persistence).
-/// 3. `start_type == 2` (Auto) AND `description` is empty AND `image_path`
+/// 3. `service_dll` (the DLL a svchost-hosted service loads) matches rule 1 or 2
+///    — a malicious `ServiceDll` is at least as suspicious as a malicious
+///    `ImagePath`, and is the more common svchost-persistence vector (T1543.003).
+/// 4. `start_type == 2` (Auto) AND `description` is empty AND `image_path`
 ///    does not contain `\system32\` or `\syswow64\`.
-/// 4. `object_name` is empty (service has no configured account).
+/// 5. `object_name` is empty (service has no configured account).
+/// 6. `failure_command` is present and non-empty (a recovery-action command —
+///    abused for persistence; surfaced as noteworthy, never a verdict).
 pub fn classify_service(
     image_path: &str,
     start_type: u32,
     description: &str,
     object_name: &str,
+    service_dll: Option<&str>,
+    failure_command: Option<&str>,
 ) -> (bool, Option<String>) {
     let lower = image_path.to_ascii_lowercase();
 
-    // Rule 1: user-writable path
-    for suspect_dir in &[r"\temp\", r"\appdata\", r"\users\public\", r"\programdata\"] {
-        if lower.contains(suspect_dir) {
-            return (
-                true,
-                Some(format!(
-                    "image path is in user-writable directory: {suspect_dir}"
-                )),
-            );
+    // Rules 1 & 2: user-writable path / interpreter abuse in ImagePath.
+    if let Some(reason) = classify_path(&lower, "image path") {
+        return (true, Some(reason));
+    }
+
+    // Rule 3: same checks against the svchost-hosted ServiceDll.
+    if let Some(dll) = service_dll {
+        if let Some(reason) = classify_path(&dll.to_ascii_lowercase(), "ServiceDll") {
+            return (true, Some(reason));
         }
     }
 
-    // Rule 2: interpreter abuse
-    for interpreter in &["cmd.exe", "powershell.exe", "wscript.exe", "mshta.exe"] {
-        if lower.contains(interpreter) {
-            return (
-                true,
-                Some(format!("image path contains interpreter: {interpreter}")),
-            );
-        }
-    }
-
-    // Rule 3: Auto-start with no description and non-system32 path
+    // Rule 4: Auto-start with no description and non-system32 path
     if start_type == 2
         && description.is_empty()
         && !lower.contains(r"\system32\")
@@ -104,11 +135,21 @@ pub fn classify_service(
         );
     }
 
-    // Rule 4: no configured account
+    // Rule 5: no configured account
     if object_name.is_empty() {
         return (
             true,
             Some("service has no configured account (ObjectName is empty)".to_string()),
+        );
+    }
+
+    // Rule 6: a configured FailureCommand recovery action.
+    if let Some(fc) = failure_command.filter(|fc| !fc.is_empty()) {
+        return (
+            true,
+            Some(format!(
+                "service has a FailureCommand recovery action: {fc}"
+            )),
         );
     }
 
@@ -145,7 +186,7 @@ pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<ServiceEntry> {
     };
 
     let Ok(subkeys) = services_key.subkeys() else {
-        return Vec::new();
+        return Vec::new(); // cov:unreachable: a Services key opened from a valid hive has a readable subkey list
     };
 
     let mut entries = Vec::with_capacity(subkeys.len());
@@ -196,13 +237,39 @@ pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<ServiceEntry> {
             .and_then(|v| v.as_string().ok())
             .unwrap_or_default();
 
-        let (is_suspicious, suspicious_reason) =
-            classify_service(&image_path, start_type, &description, &object_name);
+        // ServiceDll lives one level down, under the `Parameters` subkey — the
+        // real code a svchost-hosted (ShareProcess) service loads. Kept raw
+        // (REG_EXPAND_SZ env vars not pre-expanded), like ImagePath.
+        let service_dll = svc_key
+            .subkey("Parameters")
+            .ok()
+            .flatten()
+            .and_then(|p| p.value("ServiceDll").ok().flatten())
+            .and_then(|v| v.as_string().ok());
+
+        // FailureCommand is a recovery-action command line directly under the
+        // service key.
+        let failure_command = svc_key
+            .value("FailureCommand")
+            .ok()
+            .flatten()
+            .and_then(|v| v.as_string().ok());
+
+        let (is_suspicious, suspicious_reason) = classify_service(
+            &image_path,
+            start_type,
+            &description,
+            &object_name,
+            service_dll.as_deref(),
+            failure_command.as_deref(),
+        );
 
         entries.push(ServiceEntry {
             name,
             display_name,
             image_path,
+            service_dll,
+            failure_command,
             start_type,
             service_type,
             object_name,
