@@ -90,7 +90,7 @@ fn try_probe_hive(path: &Path, origin: SourceOrigin, sources: &mut Vec<HiveSourc
         return;
     }
 
-    let size = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    let size = fs::metadata(path).map_or(0, |m| m.len());
     if size < 4096 {
         return; // Too small for a valid hive
     }
@@ -119,7 +119,7 @@ fn try_probe_log(path: &Path, log_num: u8, sources: &mut Vec<HiveSource>) {
         return;
     }
 
-    let size = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    let size = fs::metadata(path).map_or(0, |m| m.len());
     if size < 512 {
         return;
     }
