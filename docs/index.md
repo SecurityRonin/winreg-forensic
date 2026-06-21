@@ -21,7 +21,7 @@ The workspace is split into focused crates:
 | `winreg-fuse` | FUSE virtual filesystem mount for registry hives. |
 | `winreg-py` | Python bindings for `winreg-forensic`. |
 
-The end-user CLI is `rt-reg` (the Windows Registry forensic CLI).
+The end-user CLI is `reg4n6` (the Windows Registry forensic CLI; crate `winreg-cli`).
 
 ## Design
 

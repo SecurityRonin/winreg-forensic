@@ -11,7 +11,7 @@ members = [
     "crates/winreg-timeline",
     "crates/winreg-fuse",
     "crates/winreg-py",
-    "rt-reg",
+    "crates/winreg-cli",
 ]
 
 [workspace.package]

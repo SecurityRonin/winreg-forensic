@@ -1,13 +1,13 @@
 [package]
-name = "rt-reg"
+name = "winreg-cli"
 version = "0.1.0"
-description = "Windows Registry forensic CLI"
+description = "Windows Registry forensic CLI (reg4n6)"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "rt-reg"
+name = "reg4n6"
 path = "src/main.rs"
 
 [dependencies]
