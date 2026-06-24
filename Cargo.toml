@@ -29,7 +29,7 @@ bitflags = "2"
 memmap2 = "0.9"
 
 # Error handling
-miette = { version = "7", features = ["fancy"] }
+miette = { version = "7" }
 thiserror = "2"
 
 # Time
@@ -54,7 +54,7 @@ shellitem = "0.1"
 
 # Internal
 winreg-format = { path = "crates/winreg-format", version = "0.1.0" }
-winreg-core = { path = "crates/winreg-core", version = "0.1.0" }
+winreg-core = { path = "crates/winreg-core", version = "0.1.1" }
 winreg-diff = { path = "crates/winreg-diff" }
 winreg-discover = { path = "crates/winreg-discover", version = "0.1.0" }
 

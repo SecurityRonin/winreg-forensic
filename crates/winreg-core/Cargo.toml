@@ -1,10 +1,13 @@
 [package]
 name = "winreg-core"
-version = "0.1.0"
+version = "0.1.1"
 description = "Core Windows Registry hive parser"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
+keywords = ["forensics", "windows", "registry", "hive", "dfir"]
+categories = ["parser-implementations", "data-structures"]
 
 [dependencies]
 winreg-format.workspace = true
