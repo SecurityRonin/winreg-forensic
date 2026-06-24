@@ -25,6 +25,32 @@ pub struct Key<'h, R: CellReader = Hive<Cursor<Vec<u8>>>> {
 }
 
 impl<'h, R: CellReader> Key<'h, R> {
+    /// Mint a root (or any) [`Key`] directly from a cell offset on an arbitrary
+    /// [`CellReader`] backend.
+    ///
+    /// This is the public bootstrap seam for out-of-crate backends: a foreign
+    /// `R: CellReader` (e.g. a live-memory hive walked through the HMAP cell
+    /// map) computes its own root cell offset and calls this to obtain the
+    /// first `Key`, from which all generic navigation
+    /// ([`subkeys`](Key::subkeys), [`values`](Key::values), …) follows. The
+    /// cell at `offset` is read through the trait and its `nk` signature
+    /// validated; a non-`nk` (or missing) cell is rejected loudly.
+    pub fn from_cell_offset(reader: &'h R, offset: CellOffset) -> Result<Self> {
+        match reader.read_cell(offset)? {
+            Cell::KeyNode(node) => Ok(Key {
+                hive: reader,
+                node,
+                offset,
+            }),
+            _ => Err(HiveError::InvalidCellSignature {
+                offset,
+                expected: "nk (root key node)",
+                byte0: 0,
+                byte1: 0,
+            }),
+        }
+    }
+
     pub fn name(&self) -> String {
         self.node.key_name()
     }
@@ -166,21 +192,7 @@ impl<'h, R: CellReader> Key<'h, R> {
 
 impl Hive<Cursor<Vec<u8>>> {
     pub fn root_key(&self) -> Result<Key<'_>> {
-        let offset = self.root_cell_offset();
-        let cell = self.read_cell(offset)?;
-        match cell {
-            Cell::KeyNode(nk) => Ok(Key {
-                hive: self,
-                node: nk,
-                offset,
-            }),
-            _ => Err(HiveError::InvalidCellSignature {
-                offset,
-                expected: "nk (root key node)",
-                byte0: 0,
-                byte1: 0,
-            }),
-        }
+        Key::from_cell_offset(self, self.root_cell_offset())
     }
 
     pub fn open_key(&self, path: &str) -> Result<Option<Key<'_>>> {
