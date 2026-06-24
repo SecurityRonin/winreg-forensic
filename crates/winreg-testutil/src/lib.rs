@@ -3,16 +3,26 @@
 //! Produces bytes that pass `winreg_core::hive::Hive::from_bytes()` validation,
 //! enabling TDD for all hive-reading features.
 
+// Internal test-support crate: the builder-API polish lints (Default impl,
+// #[must_use] on chained setters) are noise for a fixture used only by tests.
 #![allow(
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,
-    clippy::too_many_lines
+    clippy::too_many_lines,
+    clippy::new_without_default,
+    clippy::return_self_not_must_use
 )]
 
 use std::collections::BTreeMap;
 
 use winreg_format::cells::lh_hash;
 use winreg_format::header::BaseBlock;
+
+/// Values larger than this (16344 B) are stored as a `db` big-data record:
+/// a `db` cell → a segment-list cell → N segment data cells.
+const BIG_DATA_THRESHOLD: usize = 16344;
+/// Each big-data segment holds at most this many bytes.
+const BIG_DATA_SEGMENT_SIZE: usize = 16344;
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -22,6 +32,8 @@ use winreg_format::header::BaseBlock;
 pub struct TestHiveBuilder {
     keys: Vec<String>,
     values: Vec<TestValue>,
+    /// FILETIME written as every key's `last_written` (0 = unset → parses to None).
+    key_filetime: u64,
 }
 
 struct TestValue {
@@ -36,7 +48,18 @@ impl TestHiveBuilder {
         Self {
             keys: Vec::new(),
             values: Vec::new(),
+            key_filetime: 0,
         }
+    }
+
+    /// Set the `last_written` FILETIME written into every key node (for testing
+    /// parsers that surface registry key timestamps). 0 (default) parses to None.
+    // Shared helper used by most (not every) test binary; `common/` is compiled
+    // per-target, so the binaries that don't call it would flag dead_code.
+    #[allow(dead_code)]
+    pub fn with_key_times(mut self, filetime: u64) -> Self {
+        self.key_filetime = filetime;
+        self
     }
 
     /// Add a key by backslash-separated path. Parents are created automatically.
@@ -63,6 +86,7 @@ impl TestHiveBuilder {
 
         // --- Step 2: First pass — allocate cells ------------------------------
         let mut alloc = Allocator::new();
+        alloc.key_filetime = self.key_filetime;
 
         // SK cell (single, shared by all keys)
         let sk_id = alloc.alloc_sk(&MINIMAL_SD);
@@ -79,13 +103,30 @@ impl TestHiveBuilder {
         let mut vk_map: BTreeMap<String, Vec<CellId>> = BTreeMap::new();
         let mut values_list_ids: BTreeMap<String, CellId> = BTreeMap::new();
         let mut data_cell_ids: BTreeMap<CellId, CellId> = BTreeMap::new();
+        // (db_cell, segment_list_cell, segment_cells) for big-data values.
+        let mut big_data_links: Vec<(CellId, CellId, Vec<CellId>)> = Vec::new();
 
         for (key_path, vals) in &tree.values {
             let mut vk_ids = Vec::new();
             for v in vals {
                 let vk_id = alloc.alloc_vk(v.name.as_bytes(), v.data_type, v.data.len() as u32);
-                // Non-resident data (> 4 bytes): allocate a data cell
-                if v.data.len() > 4 {
+                // Big data (> 16344 B): a `db` cell → segment-list → N segments.
+                if v.data.len() > BIG_DATA_THRESHOLD {
+                    let seg_ids: Vec<CellId> = v
+                        .data
+                        .chunks(BIG_DATA_SEGMENT_SIZE)
+                        .map(|c| alloc.alloc_data(c))
+                        .collect();
+                    let list_id = alloc.alloc(vec![0u8; seg_ids.len() * 4]);
+                    let mut db_body = Vec::with_capacity(8);
+                    db_body.extend_from_slice(b"db");
+                    db_body.extend_from_slice(&(seg_ids.len() as u16).to_le_bytes());
+                    db_body.extend_from_slice(&0u32.to_le_bytes()); // segment_list_offset (placeholder)
+                    let db_id = alloc.alloc(db_body);
+                    data_cell_ids.insert(vk_id, db_id);
+                    big_data_links.push((db_id, list_id, seg_ids));
+                } else if v.data.len() > 4 {
+                    // Non-resident data: a single data cell.
                     let data_id = alloc.alloc_data(&v.data);
                     data_cell_ids.insert(vk_id, data_id);
                 }
@@ -232,6 +273,18 @@ impl TestHiveBuilder {
             // data_offset is at VK body offset 6..10 (after sig(2) + name_len(2) + data_size(4))
             // In cell: [size(4)][sig(2)][name_len(2)][data_size_raw(4)][data_offset_raw(4)]
             write_u32(&mut buf, vk_file + 4 + VK_DATA_OFFSET_OFFSET, data_off);
+        }
+
+        // Link big-data records: db cell → segment-list cell → segment cells.
+        for (db_id, list_id, seg_ids) in &big_data_links {
+            // db body: "db"(2) | segment_count(2) | segment_list_offset(4)
+            let db_body = hbin_file_start + hbin_data_start + alloc.cells[db_id.0].offset + 4;
+            write_u32(&mut buf, db_body + 4, cell_offset(*list_id));
+            // segment-list body: u32 cell offset per segment.
+            let list_body = hbin_file_start + hbin_data_start + alloc.cells[list_id.0].offset + 4;
+            for (i, seg_id) in seg_ids.iter().enumerate() {
+                write_u32(&mut buf, list_body + i * 4, cell_offset(*seg_id));
+            }
         }
 
         // Write resident value data inline
@@ -616,6 +669,8 @@ struct AllocatedCell {
 struct Allocator {
     pos: usize,
     cells: Vec<AllocatedCell>,
+    /// FILETIME stamped into every `nk` cell's `last_written` field.
+    key_filetime: u64,
 }
 
 impl Allocator {
@@ -623,6 +678,7 @@ impl Allocator {
         Self {
             pos: 0,
             cells: Vec::new(),
+            key_filetime: 0,
         }
     }
 
@@ -671,7 +727,7 @@ impl Allocator {
         let mut body = Vec::with_capacity(2 + 74 + name.len());
         body.extend_from_slice(b"nk");
         body.extend_from_slice(&flags.to_le_bytes()); // flags
-        body.extend_from_slice(&0u64.to_le_bytes()); // last_written
+        body.extend_from_slice(&self.key_filetime.to_le_bytes()); // last_written
         body.extend_from_slice(&0u32.to_le_bytes()); // access_bits
         body.extend_from_slice(&0xFFFF_FFFFu32.to_le_bytes()); // parent (placeholder)
         body.extend_from_slice(&0u32.to_le_bytes()); // subkey_count (placeholder)

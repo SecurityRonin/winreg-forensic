@@ -13,6 +13,7 @@ chrono = { workspace = true }
 serde = { workspace = true }
 
 [dev-dependencies]
+winreg-testutil = { workspace = true }
 tempfile.workspace = true
 serde_json.workspace = true
 
