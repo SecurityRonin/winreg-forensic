@@ -1,10 +1,10 @@
 //! Key path reconstruction — walk the parent chain to build full paths.
 
-use crate::cell_reader::Cell;
+use crate::cell_reader::{Cell, CellReader};
 use crate::error::Result;
 use crate::key::Key;
 
-impl Key<'_> {
+impl<R: CellReader> Key<'_, R> {
     /// Reconstruct the full path from root to this key.
     ///
     /// Walks the parent chain upward until the root key (`KEY_HIVE_ENTRY`) is found.

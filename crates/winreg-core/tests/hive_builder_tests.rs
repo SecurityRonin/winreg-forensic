@@ -4,7 +4,7 @@
 mod common;
 
 use common::hive_builder::TestHiveBuilder;
-use winreg_core::cell_reader::Cell;
+use winreg_core::cell_reader::{Cell, CellReader};
 use winreg_core::hive::Hive;
 
 #[test]
