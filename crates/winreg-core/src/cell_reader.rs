@@ -22,9 +22,50 @@ pub enum Cell {
     Data(Vec<u8>),
 }
 
-impl Hive<Cursor<Vec<u8>>> {
-    /// Read raw bytes at a cell offset. Returns (`cell_header`, `cell_body_bytes`).
-    pub fn read_cell_raw(&self, offset: CellOffset) -> Result<(CellHeader, Vec<u8>)> {
+/// Backend that resolves a hive-relative [`CellOffset`] to its cell bytes.
+///
+/// This is the single seam between winreg-core's shared Key/Value/`SubkeyIndex`
+/// navigation and the underlying storage. The flat-file backend
+/// ([`Hive<Cursor<Vec<u8>>>`]) reads from a 4096-relative byte buffer, but a
+/// non-flat backend — for example a live in-memory kernel hive walked through
+/// the HMAP cell map — implements the same one method and reuses every
+/// navigation and value-decoding routine unchanged.
+///
+/// The only contract is offset → bytes. Flat-file-specific concerns
+/// (base-block checksum validation, unallocated-cell rejection) live in the
+/// flat-file [`read_cell_raw`](CellReader::read_cell_raw) implementation, not
+/// in this trait or in the shared navigation, so an allocation-agnostic
+/// in-memory hive can still navigate.
+pub trait CellReader {
+    /// Resolve a cell offset to its raw bytes. Returns
+    /// (`cell_header`, `cell_body_bytes`).
+    ///
+    /// This is the one backend-specific operation. A flat-file backend may
+    /// reject unallocated cells here; a live-memory backend need not.
+    fn read_cell_raw(&self, offset: CellOffset) -> Result<(CellHeader, Vec<u8>)>;
+
+    /// Read and parse a typed cell at the given offset.
+    ///
+    /// Provided: dispatches on the cell signature using the bytes returned by
+    /// [`read_cell_raw`](CellReader::read_cell_raw). Shared across all backends.
+    fn read_cell(&self, offset: CellOffset) -> Result<Cell> {
+        let (_header, body) = self.read_cell_raw(offset)?;
+        dispatch_cell(offset, body)
+    }
+
+    /// Read raw data bytes at a cell offset (no signature dispatch).
+    /// Used for value data cells, class names, etc. Shared across all backends.
+    fn read_data_cell(&self, offset: CellOffset) -> Result<Vec<u8>> {
+        let (_header, body) = self.read_cell_raw(offset)?;
+        Ok(body)
+    }
+}
+
+impl CellReader for Hive<Cursor<Vec<u8>>> {
+    /// Flat-file cell resolution: bytes live at `4096 + cell_offset` in the
+    /// in-memory buffer. Rejects null offsets, out-of-bounds cells, and
+    /// unallocated cells — concerns specific to an on-disk hive image.
+    fn read_cell_raw(&self, offset: CellOffset) -> Result<(CellHeader, Vec<u8>)> {
         if offset.is_null() {
             return Err(HiveError::NullOffset);
         }
@@ -64,105 +105,94 @@ impl Hive<Cursor<Vec<u8>>> {
         let body = data[file_offset + 4..end].to_vec();
         Ok((header, body))
     }
+}
 
-    /// Read and parse a typed cell at the given offset.
-    pub fn read_cell(&self, offset: CellOffset) -> Result<Cell> {
-        let (_header, body) = self.read_cell_raw(offset)?;
-
-        if body.len() < 2 {
-            return Ok(Cell::Data(body));
-        }
-
-        let sig_bytes: [u8; 2] = [body[0], body[1]];
-        let after_sig = &body[2..];
-
-        match CellSignature::from_bytes(&sig_bytes) {
-            Some(CellSignature::KeyNode) => {
-                let nk = RawKeyNode::parse(after_sig).ok_or(HiveError::InvalidCellSignature {
-                    offset,
-                    expected: "nk (valid key node)",
-                    byte0: sig_bytes[0],
-                    byte1: sig_bytes[1],
-                })?;
-                Ok(Cell::KeyNode(nk))
-            }
-            Some(CellSignature::KeyValue) => {
-                let vk = RawKeyValue::parse(after_sig).ok_or(HiveError::InvalidCellSignature {
-                    offset,
-                    expected: "vk (valid key value)",
-                    byte0: sig_bytes[0],
-                    byte1: sig_bytes[1],
-                })?;
-                Ok(Cell::KeyValue(vk))
-            }
-            Some(CellSignature::SecurityKey) => {
-                let sk =
-                    RawSecurityKey::parse(after_sig).ok_or(HiveError::InvalidCellSignature {
-                        offset,
-                        expected: "sk (valid security key)",
-                        byte0: sig_bytes[0],
-                        byte1: sig_bytes[1],
-                    })?;
-                Ok(Cell::SecurityKey(sk))
-            }
-            Some(CellSignature::FastLeaf) => {
-                let idx =
-                    SubkeyIndex::parse_lf(after_sig).ok_or(HiveError::InvalidCellSignature {
-                        offset,
-                        expected: "lf (valid fast leaf)",
-                        byte0: sig_bytes[0],
-                        byte1: sig_bytes[1],
-                    })?;
-                Ok(Cell::Index(idx))
-            }
-            Some(CellSignature::HashLeaf) => {
-                let idx =
-                    SubkeyIndex::parse_lh(after_sig).ok_or(HiveError::InvalidCellSignature {
-                        offset,
-                        expected: "lh (valid hash leaf)",
-                        byte0: sig_bytes[0],
-                        byte1: sig_bytes[1],
-                    })?;
-                Ok(Cell::Index(idx))
-            }
-            Some(CellSignature::IndexLeaf) => {
-                let idx =
-                    SubkeyIndex::parse_li(after_sig).ok_or(HiveError::InvalidCellSignature {
-                        offset,
-                        expected: "li (valid index leaf)",
-                        byte0: sig_bytes[0],
-                        byte1: sig_bytes[1],
-                    })?;
-                Ok(Cell::Index(idx))
-            }
-            Some(CellSignature::RootIndex) => {
-                let idx =
-                    SubkeyIndex::parse_ri(after_sig).ok_or(HiveError::InvalidCellSignature {
-                        offset,
-                        expected: "ri (valid root index)",
-                        byte0: sig_bytes[0],
-                        byte1: sig_bytes[1],
-                    })?;
-                Ok(Cell::Index(idx))
-            }
-            Some(CellSignature::BigData) => {
-                let db = RawBigData::parse(after_sig).ok_or(HiveError::InvalidCellSignature {
-                    offset,
-                    expected: "db (valid big data)",
-                    byte0: sig_bytes[0],
-                    byte1: sig_bytes[1],
-                })?;
-                Ok(Cell::BigData(db))
-            }
-            None => Ok(Cell::Data(body)),
-        }
+/// Dispatch a cell body on its signature into a typed [`Cell`].
+///
+/// Backend-agnostic: operates purely on the bytes a [`CellReader`] returned, so
+/// every backend shares this logic via [`CellReader::read_cell`].
+fn dispatch_cell(offset: CellOffset, body: Vec<u8>) -> Result<Cell> {
+    if body.len() < 2 {
+        return Ok(Cell::Data(body));
     }
 
-    /// Read raw data bytes at a cell offset (no signature dispatch).
-    /// Used for value data cells, class names, etc.
-    pub fn read_data_cell(&self, offset: CellOffset) -> Result<Vec<u8>> {
-        let (_header, body) = self.read_cell_raw(offset)?;
-        Ok(body)
+    let sig_bytes: [u8; 2] = [body[0], body[1]];
+    let after_sig = &body[2..];
+
+    match CellSignature::from_bytes(&sig_bytes) {
+        Some(CellSignature::KeyNode) => {
+            let nk = RawKeyNode::parse(after_sig).ok_or(HiveError::InvalidCellSignature {
+                offset,
+                expected: "nk (valid key node)",
+                byte0: sig_bytes[0],
+                byte1: sig_bytes[1],
+            })?;
+            Ok(Cell::KeyNode(nk))
+        }
+        Some(CellSignature::KeyValue) => {
+            let vk = RawKeyValue::parse(after_sig).ok_or(HiveError::InvalidCellSignature {
+                offset,
+                expected: "vk (valid key value)",
+                byte0: sig_bytes[0],
+                byte1: sig_bytes[1],
+            })?;
+            Ok(Cell::KeyValue(vk))
+        }
+        Some(CellSignature::SecurityKey) => {
+            let sk = RawSecurityKey::parse(after_sig).ok_or(HiveError::InvalidCellSignature {
+                offset,
+                expected: "sk (valid security key)",
+                byte0: sig_bytes[0],
+                byte1: sig_bytes[1],
+            })?;
+            Ok(Cell::SecurityKey(sk))
+        }
+        Some(CellSignature::FastLeaf) => {
+            let idx = SubkeyIndex::parse_lf(after_sig).ok_or(HiveError::InvalidCellSignature {
+                offset,
+                expected: "lf (valid fast leaf)",
+                byte0: sig_bytes[0],
+                byte1: sig_bytes[1],
+            })?;
+            Ok(Cell::Index(idx))
+        }
+        Some(CellSignature::HashLeaf) => {
+            let idx = SubkeyIndex::parse_lh(after_sig).ok_or(HiveError::InvalidCellSignature {
+                offset,
+                expected: "lh (valid hash leaf)",
+                byte0: sig_bytes[0],
+                byte1: sig_bytes[1],
+            })?;
+            Ok(Cell::Index(idx))
+        }
+        Some(CellSignature::IndexLeaf) => {
+            let idx = SubkeyIndex::parse_li(after_sig).ok_or(HiveError::InvalidCellSignature {
+                offset,
+                expected: "li (valid index leaf)",
+                byte0: sig_bytes[0],
+                byte1: sig_bytes[1],
+            })?;
+            Ok(Cell::Index(idx))
+        }
+        Some(CellSignature::RootIndex) => {
+            let idx = SubkeyIndex::parse_ri(after_sig).ok_or(HiveError::InvalidCellSignature {
+                offset,
+                expected: "ri (valid root index)",
+                byte0: sig_bytes[0],
+                byte1: sig_bytes[1],
+            })?;
+            Ok(Cell::Index(idx))
+        }
+        Some(CellSignature::BigData) => {
+            let db = RawBigData::parse(after_sig).ok_or(HiveError::InvalidCellSignature {
+                offset,
+                expected: "db (valid big data)",
+                byte0: sig_bytes[0],
+                byte1: sig_bytes[1],
+            })?;
+            Ok(Cell::BigData(db))
+        }
+        None => Ok(Cell::Data(body)),
     }
 }
 

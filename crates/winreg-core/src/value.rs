@@ -5,6 +5,7 @@ use std::io::Cursor;
 use winreg_format::cells::{CellOffset, RawKeyValue};
 use winreg_format::flags::ValueType;
 
+use crate::cell_reader::CellReader;
 use crate::error::Result;
 use crate::hive::Hive;
 
@@ -15,13 +16,16 @@ const BIG_DATA_THRESHOLD: usize = 16344;
 const BIG_DATA_SEGMENT_SIZE: usize = 16344;
 
 /// A registry value within a key.
-pub struct Value<'h> {
-    pub(crate) hive: &'h Hive<Cursor<Vec<u8>>>,
+///
+/// Generic over the [`CellReader`] backend; defaults to the flat-file hive so
+/// existing call sites keep using `Value<'_>` unchanged.
+pub struct Value<'h, R: CellReader = Hive<Cursor<Vec<u8>>>> {
+    pub(crate) hive: &'h R,
     pub(crate) vk: RawKeyValue,
     pub(crate) offset: CellOffset,
 }
 
-impl Value<'_> {
+impl<R: CellReader> Value<'_, R> {
     /// Value name. Empty string for the unnamed (default) value.
     pub fn name(&self) -> String {
         self.vk.value_name()

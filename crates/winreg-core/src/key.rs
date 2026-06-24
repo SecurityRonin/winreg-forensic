@@ -5,7 +5,7 @@ use std::io::Cursor;
 use winreg_format::cells::{CellOffset, RawKeyNode, SubkeyIndex};
 use winreg_format::flags::KeyFlags;
 
-use crate::cell_reader::Cell;
+use crate::cell_reader::{Cell, CellReader};
 use crate::error::{HiveError, Result};
 use crate::hive::Hive;
 use crate::value::Value;
@@ -15,13 +15,16 @@ use crate::value::Value;
 const FILETIME_EPOCH_DIFF: u64 = 116_444_736_000_000_000;
 
 /// A registry key within a hive.
-pub struct Key<'h> {
-    pub(crate) hive: &'h Hive<Cursor<Vec<u8>>>,
+///
+/// Generic over the [`CellReader`] backend; defaults to the flat-file hive so
+/// existing call sites keep using `Key<'_>` unchanged.
+pub struct Key<'h, R: CellReader = Hive<Cursor<Vec<u8>>>> {
+    pub(crate) hive: &'h R,
     pub(crate) node: RawKeyNode,
     pub(crate) offset: CellOffset,
 }
 
-impl<'h> Key<'h> {
+impl<'h, R: CellReader> Key<'h, R> {
     pub fn name(&self) -> String {
         self.node.key_name()
     }
@@ -54,7 +57,7 @@ impl<'h> Key<'h> {
         self.offset
     }
 
-    pub fn subkeys(&self) -> Result<Vec<Key<'h>>> {
+    pub fn subkeys(&self) -> Result<Vec<Key<'h, R>>> {
         if self.node.subkey_count == 0 || self.node.subkeys_list_offset.is_null() {
             return Ok(Vec::new());
         }
@@ -73,7 +76,7 @@ impl<'h> Key<'h> {
         Ok(keys)
     }
 
-    pub fn subkey(&self, name: &str) -> Result<Option<Key<'h>>> {
+    pub fn subkey(&self, name: &str) -> Result<Option<Key<'h, R>>> {
         let target = name.to_ascii_uppercase();
         for key in self.subkeys()? {
             if key.name().to_ascii_uppercase() == target {
@@ -83,7 +86,7 @@ impl<'h> Key<'h> {
         Ok(None)
     }
 
-    pub fn subkey_path(&self, path: &str) -> Result<Option<Key<'h>>> {
+    pub fn subkey_path(&self, path: &str) -> Result<Option<Key<'h, R>>> {
         let parts: Vec<&str> = path.split('\\').filter(|s| !s.is_empty()).collect();
         if parts.is_empty() {
             return Ok(None);
@@ -104,7 +107,7 @@ impl<'h> Key<'h> {
         Ok(Some(current))
     }
 
-    pub fn values(&self) -> Result<Vec<Value<'h>>> {
+    pub fn values(&self) -> Result<Vec<Value<'h, R>>> {
         if self.node.value_count == 0 || self.node.values_list_offset.is_null() {
             return Ok(Vec::new());
         }
@@ -129,7 +132,7 @@ impl<'h> Key<'h> {
         Ok(values)
     }
 
-    pub fn value(&self, name: &str) -> Result<Option<Value<'h>>> {
+    pub fn value(&self, name: &str) -> Result<Option<Value<'h, R>>> {
         let target = name.to_ascii_uppercase();
         for val in self.values()? {
             if val.name().to_ascii_uppercase() == target {

@@ -3,13 +3,14 @@
 use std::collections::VecDeque;
 use std::io::Cursor;
 
+use crate::cell_reader::CellReader;
 use crate::error::Result;
 use crate::hive::Hive;
 use crate::key::Key;
 
 /// Breadth-first iterator over all keys in the hive.
-pub struct BfsIter<'h> {
-    queue: VecDeque<Key<'h>>,
+pub struct BfsIter<'h, R: CellReader = Hive<Cursor<Vec<u8>>>> {
+    queue: VecDeque<Key<'h, R>>,
 }
 
 impl<'h> BfsIter<'h> {
@@ -21,8 +22,8 @@ impl<'h> BfsIter<'h> {
     }
 }
 
-impl<'h> Iterator for BfsIter<'h> {
-    type Item = Result<Key<'h>>;
+impl<'h, R: CellReader> Iterator for BfsIter<'h, R> {
+    type Item = Result<Key<'h, R>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let key = self.queue.pop_front()?;
@@ -39,8 +40,8 @@ impl<'h> Iterator for BfsIter<'h> {
 }
 
 /// Depth-first (pre-order) iterator over all keys in the hive.
-pub struct DfsIter<'h> {
-    stack: Vec<Key<'h>>,
+pub struct DfsIter<'h, R: CellReader = Hive<Cursor<Vec<u8>>>> {
+    stack: Vec<Key<'h, R>>,
 }
 
 impl<'h> DfsIter<'h> {
@@ -50,8 +51,8 @@ impl<'h> DfsIter<'h> {
     }
 }
 
-impl<'h> Iterator for DfsIter<'h> {
-    type Item = Result<Key<'h>>;
+impl<'h, R: CellReader> Iterator for DfsIter<'h, R> {
+    type Item = Result<Key<'h, R>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let key = self.stack.pop()?;
