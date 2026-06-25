@@ -45,7 +45,9 @@
 use std::io::Cursor;
 use std::path::Path;
 
-use forensicnomicon::catalog::{ArtifactDescriptor, ArtifactType, Decoder, HiveTarget, CATALOG};
+use forensicnomicon::catalog::{
+    ArtifactDescriptor, ArtifactLocation, Decoder, HiveTarget, CATALOG,
+};
 use winreg_core::detect::HiveType;
 use winreg_core::hive::Hive;
 use winreg_core::key::{filetime_to_datetime, Key};
@@ -369,8 +371,11 @@ fn hive_target_for(hive_type: HiveType) -> Option<HiveTarget> {
     }
 }
 
-fn is_registry(at: ArtifactType) -> bool {
-    matches!(at, ArtifactType::RegistryKey | ArtifactType::RegistryValue)
+fn is_registry(at: ArtifactLocation) -> bool {
+    matches!(
+        at,
+        ArtifactLocation::RegistryKey | ArtifactLocation::RegistryValue
+    )
 }
 
 /// Normalize a catalog key path into hive-relative expansion [`Segment`]s, or

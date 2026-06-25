@@ -47,7 +47,7 @@ clap = { version = "4", features = ["derive"] }
 tempfile = "3"
 
 # Knowledge leaf — registry-artifact catalog (which keys, what they mean).
-forensicnomicon = "0.5"
+forensicnomicon = "0.11"
 
 # Reusable PIDL/ITEMIDLIST shell-item decoder primitive — turns ShellBag slot
 # blobs into real folder names instead of opaque byte-size previews.
