@@ -274,6 +274,91 @@ fn parse_multiple_entries() {
 // Test 12: AmcacheEntry struct accessible
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Test 13: legacy Root\File schema (Win8 / Server 2012 R2)
+// ---------------------------------------------------------------------------
+
+/// Base path for the legacy `Root\File\{VolumeGUID}` schema.
+const ROOT_FILE_PATH: &str = "Root\\File";
+
+#[test]
+fn parse_legacy_root_file_schema_entries() {
+    // Win8 / Server 2012 R2 Amcache stores execution evidence under
+    // `Root\File\{VolumeGUID}\{seq}` (value `15` = path, `101` = SHA-1 with the
+    // same `0000` prefix as a modern FileId). Such a hive has NO
+    // `InventoryApplicationFile` key, so a parser that only walks the modern
+    // schema returns nothing — the exact DC01 0-events bug.
+    let vol = format!("{ROOT_FILE_PATH}\\{{a7f6108c-f8fd-11ea-80b5-806e6f6e6963}}");
+    let entry = format!("{vol}\\1000015114");
+    let data = TestHiveBuilder::new()
+        .add_key(&vol)
+        .add_key(&entry)
+        .add_value(
+            &entry,
+            "15",
+            REG_SZ,
+            &utf16le("C:\\Windows\\Temp\\evil.exe"),
+        )
+        .add_value(
+            &entry,
+            "101",
+            REG_SZ,
+            &utf16le("0000aabbccddeeff00112233445566778899aabb"),
+        )
+        .build();
+    let hive = Hive::from_bytes(data).unwrap();
+    let entries = parse(&hive);
+    let e = entries
+        .iter()
+        .find(|e| e.file_path == "C:\\Windows\\Temp\\evil.exe")
+        .expect("legacy Root\\File entry must be parsed");
+    assert_eq!(
+        e.sha1, "aabbccddeeff00112233445566778899aabb",
+        "value 101 is the SHA-1 with the 0000 prefix stripped"
+    );
+    assert_eq!(
+        e.key_name, "1000015114",
+        "key_name is the file entry's sequence subkey name"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 14: real DC01 Amcache.hve (env-gated) — the 2012R2 Root\File schema
+// ---------------------------------------------------------------------------
+
+/// Set `WINREG_DC01_AMCACHE` to the extracted DFIR-Madness Case-001 DC01
+/// `\Windows\AppCompat\Programs\Amcache.hve`. Skips loudly when absent. The DC
+/// is Server 2012 R2, so this hive carries ~136 `Root\File` entries and no
+/// `InventoryApplicationFile` — the real-world proof for Test 13.
+#[test]
+fn parse_real_dc01_amcache_root_file() {
+    let Ok(path) = std::env::var("WINREG_DC01_AMCACHE") else {
+        eprintln!(
+            "SKIP parse_real_dc01_amcache_root_file: \
+             set WINREG_DC01_AMCACHE to the DC01 Amcache.hve path"
+        );
+        return;
+    };
+    let data = std::fs::read(&path).expect("read Amcache.hve (check WINREG_DC01_AMCACHE)");
+    let hive = Hive::from_bytes(data).unwrap();
+    let entries = parse(&hive);
+    assert!(
+        entries.len() >= 100,
+        "DC01 Amcache carries ~136 Root\\File entries; got {}",
+        entries.len()
+    );
+    assert!(
+        entries
+            .iter()
+            .any(|e| e.file_path.to_lowercase().contains("vsocklib_x64.dll")),
+        "a known DC01 Root\\File binary (vsocklib_x64.dll) must be surfaced"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 15: AmcacheEntry struct accessible
+// ---------------------------------------------------------------------------
+
 #[test]
 fn amcache_entry_struct_fields_accessible() {
     let entry = AmcacheEntry {
