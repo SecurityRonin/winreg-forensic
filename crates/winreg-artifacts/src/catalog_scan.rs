@@ -52,6 +52,7 @@ use winreg_core::detect::HiveType;
 use winreg_core::hive::Hive;
 use winreg_core::key::{filetime_to_datetime, Key};
 use winreg_core::value::{decode_multi_sz, decode_utf16le, Value};
+use winreg_format::flags::ValueType;
 
 use crate::path_expansion::{
     expand, resolve_control_sets, Binding, ControlSetResolver, Segment, Wildcard,
@@ -521,8 +522,13 @@ fn make_hit(
 fn render_value(decoder: Decoder, val: &Value<'_>) -> (String, bool) {
     let raw = val.raw_data().unwrap_or_default();
     match decoder {
-        // REG_SZ / REG_EXPAND_SZ text — UTF-16LE on disk.
-        Decoder::Identity | Decoder::Utf16Le => (decode_utf16le(&raw), false),
+        // Generic catalog hit: the descriptor says "read this key's values" but
+        // the individual values have mixed on-disk types (a Tcpip interface key
+        // mixes REG_SZ IP strings with REG_DWORD lease times). Render by each
+        // value's ACTUAL type, so a DWORD is a number — not UTF-16 garbage.
+        Decoder::Identity | Decoder::Utf16Le => {
+            (render_by_value_type(val.data_type(), &raw), false)
+        }
         Decoder::DwordLe => (val.as_u32().unwrap_or(0).to_string(), false),
         Decoder::MultiSz => (decode_multi_sz(&raw).join("; "), false),
         Decoder::FiletimeAt { offset } => {
@@ -549,10 +555,89 @@ fn render_value(decoder: Decoder, val: &Value<'_>) -> (String, bool) {
     }
 }
 
+/// Render a value by its ON-DISK registry type, used when the catalog applies a
+/// generic (string) decoder to a key whose values are actually of mixed types.
+/// A REG_DWORD/QWORD renders as its decimal number, REG_MULTI_SZ joins, and
+/// binary/resource/unknown render as bounded hex — never the garbage that
+/// UTF-16-decoding a numeric/binary value produces.
+fn render_by_value_type(ty: ValueType, raw: &[u8]) -> String {
+    // RED stub — GREEN replaces with a per-type dispatch.
+    decode_utf16le(raw)
+}
+
+/// First 4 bytes as a fixed array, zero-padded (bounds-checked, panic-free).
+fn first4(raw: &[u8]) -> [u8; 4] {
+    let mut b = [0u8; 4];
+    if let Some(s) = raw.get(..4) {
+        b.copy_from_slice(s);
+    }
+    b
+}
+
+/// First 8 bytes as a fixed array, zero-padded (bounds-checked, panic-free).
+fn first8(raw: &[u8]) -> [u8; 8] {
+    let mut b = [0u8; 8];
+    if let Some(s) = raw.get(..8) {
+        b.copy_from_slice(s);
+    }
+    b
+}
+
+/// A bounded space-separated hex rendering of a binary value.
+fn hex_preview(raw: &[u8]) -> String {
+    const MAX: usize = 32;
+    if raw.is_empty() {
+        return "<empty>".to_string();
+    }
+    let mut s = raw
+        .iter()
+        .take(MAX)
+        .map(|b| format!("{b:02x}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    if raw.len() > MAX {
+        s.push_str(" …");
+    }
+    s
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn render_by_value_type_uses_the_on_disk_type_not_utf16() {
+        // A REG_DWORD under a generic (string-decoder) key — e.g. a Tcpip
+        // interface `LeaseObtainedTime`/`T1`/`T2` — must render as a decimal
+        // number, NOT the CJK garbage that UTF-16-decoding 4 raw bytes produces.
+        assert_eq!(
+            render_by_value_type(ValueType::Dword, &1_600_500_834u32.to_le_bytes()),
+            "1600500834"
+        );
+        assert_eq!(
+            render_by_value_type(ValueType::Qword, &42u64.to_le_bytes()),
+            "42"
+        );
+        assert_eq!(
+            render_by_value_type(ValueType::DwordBigEndian, &7u32.to_be_bytes()),
+            "7"
+        );
+        // A REG_SZ value still renders as its UTF-16LE text.
+        let sz: Vec<u8> = "10.42.85.10\0"
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        assert_eq!(
+            render_by_value_type(ValueType::Sz, &sz).trim_end_matches('\0'),
+            "10.42.85.10"
+        );
+        // Binary renders as bounded hex, never garbage text.
+        assert_eq!(
+            render_by_value_type(ValueType::Binary, &[0xde, 0xad, 0xbe, 0xef]),
+            "de ad be ef"
+        );
+    }
 
     fn literals(segs: &[Segment]) -> Vec<&str> {
         segs.iter()
