@@ -165,7 +165,7 @@ fn parse_root_file(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<AmcacheEntry> {
     let mut entries = Vec::new();
     for volume in volumes {
         let Ok(files) = volume.subkeys() else {
-            continue;
+            continue; // cov:unreachable: a volume key returned by subkeys() is enumerable
         };
         for file in files {
             let read_sz = |name: &str| -> String {
