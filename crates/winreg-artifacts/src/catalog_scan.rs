@@ -557,12 +557,20 @@ fn render_value(decoder: Decoder, val: &Value<'_>) -> (String, bool) {
 
 /// Render a value by its ON-DISK registry type, used when the catalog applies a
 /// generic (string) decoder to a key whose values are actually of mixed types.
-/// A REG_DWORD/QWORD renders as its decimal number, REG_MULTI_SZ joins, and
-/// binary/resource/unknown render as bounded hex — never the garbage that
-/// UTF-16-decoding a numeric/binary value produces.
+/// A `REG_DWORD`/`REG_QWORD` renders as its decimal number, `REG_MULTI_SZ`
+/// joins, and binary/resource/unknown render as bounded hex — never the garbage
+/// that UTF-16-decoding a numeric/binary value produces.
 fn render_by_value_type(ty: ValueType, raw: &[u8]) -> String {
-    // RED stub — GREEN replaces with a per-type dispatch.
-    decode_utf16le(raw)
+    match ty {
+        ValueType::Sz | ValueType::ExpandSz | ValueType::Link => decode_utf16le(raw),
+        ValueType::MultiSz => decode_multi_sz(raw).join("; "),
+        ValueType::Dword => u32::from_le_bytes(first4(raw)).to_string(),
+        ValueType::DwordBigEndian => u32::from_be_bytes(first4(raw)).to_string(),
+        ValueType::Qword => u64::from_le_bytes(first8(raw)).to_string(),
+        // Binary / resource lists / NONE / unknown future types: bounded hex, so
+        // the value is legible evidence rather than UTF-16 garbage.
+        _ => hex_preview(raw),
+    }
 }
 
 /// First 4 bytes as a fixed array, zero-padded (bounds-checked, panic-free).
