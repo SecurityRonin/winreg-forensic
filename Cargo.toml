@@ -51,7 +51,7 @@ forensicnomicon = "1"
 
 # Reusable PIDL/ITEMIDLIST shell-item decoder primitive — turns ShellBag slot
 # blobs into real folder names instead of opaque byte-size previews.
-shellitem = "0.1"
+shellitem = "0.2"
 
 # Internal
 winreg-format = { path = "crates/winreg-format", version = "0.1.0" }
