@@ -1,6 +1,6 @@
 [package]
 name = "winreg-cli"
-version = "0.1.0"
+version = "0.2.0"
 description = "Windows Registry forensic CLI (reg4n6)"
 authors = ["Albert Hui <albert@securityronin.com>"]
 edition.workspace = true
@@ -17,7 +17,7 @@ winreg-core.workspace = true
 winreg-diff.workspace = true
 winreg-discover.workspace = true
 winreg-format.workspace = true
-chrono.workspace = true
+jiff.workspace = true
 clap.workspace = true
 serde_json.workspace = true
 

@@ -118,7 +118,10 @@ pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<TypedUrl> {
                         if raw.len() >= 8 {
                             let ft = winreg_core::bytes::le_u64(&raw[..], 0);
                             if let Some(dt) = filetime_to_datetime(ft) {
-                                map.insert(val.name(), dt.format("%Y-%m-%dT%H:%M:%SZ").to_string());
+                                if let Ok(s) = jiff::fmt::strtime::format("%Y-%m-%dT%H:%M:%SZ", dt)
+                                {
+                                    map.insert(val.name(), s);
+                                }
                             }
                         }
                     }

@@ -34,7 +34,7 @@ pub struct LxssDistro {
     /// The distro GUID subkey's `LastWriteTime` — approximately when WSL
     /// registered or updated this distro. `None` when the key carries no
     /// timestamp.
-    pub last_written: Option<chrono::DateTime<chrono::Utc>>,
+    pub last_written: Option<jiff::Timestamp>,
 }
 
 impl LxssDistro {

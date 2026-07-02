@@ -302,7 +302,7 @@ fn parse_secrets_surfaces_key_last_written() {
         .last_written
         .expect("secret entry must carry its name key LastWriteTime");
     assert_eq!(
-        lw.timestamp(),
+        lw.as_second(),
         1_600_486_800,
         "decoded FILETIME → 2020-09-19T03:40:00Z"
     );
@@ -331,7 +331,7 @@ fn parse_dcc2_slots_surfaces_key_last_written() {
         .last_written
         .expect("DCC2 slot entry must carry its slot key LastWriteTime");
     assert_eq!(
-        lw.timestamp(),
+        lw.as_second(),
         1_600_486_800,
         "decoded FILETIME → 2020-09-19T03:40:00Z"
     );

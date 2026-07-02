@@ -89,7 +89,7 @@ pub struct CatalogHit {
     pub bindings: Vec<Binding>,
     /// The resolved key's `LastWriteTime` — approximately when this artifact
     /// value was last written. `None` when the key carries no timestamp.
-    pub last_written: Option<chrono::DateTime<chrono::Utc>>,
+    pub last_written: Option<jiff::Timestamp>,
 }
 
 /// Identity of the user a per-user [`CatalogHit`] is attributed to.
@@ -495,7 +495,7 @@ fn make_hit(
     value_name: Option<String>,
     val: &Value<'_>,
     bindings: &[Binding],
-    last_written: Option<chrono::DateTime<chrono::Utc>>,
+    last_written: Option<jiff::Timestamp>,
 ) -> CatalogHit {
     let (value_data, specialized) = render_value(descriptor.decoder, val);
     CatalogHit {
@@ -536,7 +536,7 @@ fn render_value(decoder: Decoder, val: &Value<'_>) -> (String, bool) {
                 .get(offset..offset + 8)
                 .map(|b| winreg_core::bytes::le_u64(b, 0))
                 .and_then(filetime_to_datetime)
-                .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string());
+                .and_then(|dt| jiff::fmt::strtime::format("%Y-%m-%dT%H:%M:%SZ", dt).ok());
             (ts.unwrap_or_default(), false)
         }
         // Binary record / ROT13 / ESE artifacts have dedicated decoders elsewhere.

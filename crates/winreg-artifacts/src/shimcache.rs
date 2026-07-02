@@ -268,7 +268,8 @@ fn decode_win10_entry_body(body: &[u8], layout: EntryBodyLayout) -> (String, Opt
         .filter(|&o| o.checked_add(8).is_some_and(|end| end <= body.len()))
         .and_then(|o| {
             let ft = winreg_core::bytes::le_u64(body, o);
-            filetime_to_datetime(ft).map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+            filetime_to_datetime(ft)
+                .and_then(|dt| jiff::fmt::strtime::format("%Y-%m-%dT%H:%M:%SZ", dt).ok())
         });
     (path, last_modified)
 }
@@ -377,7 +378,8 @@ fn decode_entry_body(body: &[u8]) -> (String, Option<String>) {
 
     let last_modified: Option<String> = if body.len() >= 16 {
         let ft = winreg_core::bytes::le_u64(body, 8);
-        filetime_to_datetime(ft).map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+        filetime_to_datetime(ft)
+            .and_then(|dt| jiff::fmt::strtime::format("%Y-%m-%dT%H:%M:%SZ", dt).ok())
     } else {
         None
     };

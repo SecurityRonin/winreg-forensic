@@ -353,8 +353,11 @@ fn cmd_discover(
 
             for source in &filtered {
                 let ts = source.timestamp.map_or_else(
-                    || "\u{2014}".into(),
-                    |t| t.format("%Y-%m-%d %H:%M:%S").to_string(),
+                    || "\u{2014}".to_string(),
+                    |t| {
+                        jiff::fmt::strtime::format("%Y-%m-%d %H:%M:%S", t)
+                            .unwrap_or_else(|_| "\u{2014}".to_string())
+                    },
                 );
                 let clean = if source.is_clean { "yes" } else { "NO" };
                 println!(

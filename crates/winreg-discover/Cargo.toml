@@ -1,6 +1,6 @@
 [package]
 name = "winreg-discover"
-version = "0.1.0"
+version = "0.2.0"
 description = "Registry hive source discovery — find hives in evidence"
 edition.workspace = true
 rust-version.workspace = true
@@ -9,7 +9,7 @@ license.workspace = true
 [dependencies]
 winreg-core.workspace = true
 winreg-format.workspace = true
-chrono = { workspace = true }
+jiff = { workspace = true }
 serde = { workspace = true }
 
 [dev-dependencies]

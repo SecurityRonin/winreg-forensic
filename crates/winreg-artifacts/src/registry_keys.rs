@@ -58,7 +58,7 @@ pub fn walk_keys(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<RegistryKeyInfo> {
 
         let last_written = key
             .last_written()
-            .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S").to_string());
+            .and_then(|dt| jiff::fmt::strtime::format("%Y-%m-%dT%H:%M:%S", dt).ok());
 
         result.push(RegistryKeyInfo {
             name: key.name(),

@@ -385,7 +385,7 @@ fn scan_surfaces_key_last_written() {
         .last_written
         .expect("catalog hit must carry its key LastWriteTime");
     assert_eq!(
-        lw.timestamp(),
+        lw.as_second(),
         1_600_486_800,
         "decoded FILETIME → 2020-09-19T03:40:00Z"
     );

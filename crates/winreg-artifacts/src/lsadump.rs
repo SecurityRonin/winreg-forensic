@@ -39,7 +39,7 @@ pub struct LsaSecretEntry {
     pub is_interesting: bool,
     /// The secret name key's `LastWriteTime` — approximately when this secret
     /// was last rotated. `None` when the key carries no timestamp.
-    pub last_written: Option<chrono::DateTime<chrono::Utc>>,
+    pub last_written: Option<jiff::Timestamp>,
 }
 
 /// Occupancy metadata for a single DCC2 cache slot under `SECURITY\Cache`.
@@ -53,7 +53,7 @@ pub struct Dcc2SlotEntry {
     pub data_size: usize,
     /// The slot subkey's `LastWriteTime` — approximately when this cached
     /// credential was last written. `None` when the key carries no timestamp.
-    pub last_written: Option<chrono::DateTime<chrono::Utc>>,
+    pub last_written: Option<jiff::Timestamp>,
 }
 
 // ── Classifier ────────────────────────────────────────────────────────────────

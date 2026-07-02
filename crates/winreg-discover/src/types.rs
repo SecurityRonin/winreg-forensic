@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::Serialize;
 use winreg_core::detect::HiveType;
 
@@ -16,7 +16,7 @@ pub struct HiveSource {
     /// Where this copy came from.
     pub origin: SourceOrigin,
     /// Timestamp from the `BaseBlock` header (last write time).
-    pub timestamp: Option<DateTime<Utc>>,
+    pub timestamp: Option<Timestamp>,
     /// File size in bytes.
     pub size: u64,
     /// Whether the hive is clean (no pending transaction logs).

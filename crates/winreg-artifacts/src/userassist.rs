@@ -98,7 +98,7 @@ pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<UserAssistEntry> {
             let filetime = winreg_core::bytes::le_u64(&raw[..], 60);
 
             let last_run = filetime_to_datetime(filetime)
-                .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string());
+                .and_then(|dt| jiff::fmt::strtime::format("%Y-%m-%dT%H:%M:%SZ", dt).ok());
 
             let program = rot13_decode(&val.name());
 

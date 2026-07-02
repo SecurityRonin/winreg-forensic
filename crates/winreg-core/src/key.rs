@@ -59,7 +59,7 @@ impl<'h, R: CellReader> Key<'h, R> {
         self.node.last_written
     }
 
-    pub fn last_written(&self) -> Option<chrono::DateTime<chrono::Utc>> {
+    pub fn last_written(&self) -> Option<jiff::Timestamp> {
         filetime_to_datetime(self.node.last_written)
     }
 
@@ -200,36 +200,45 @@ impl Hive<Cursor<Vec<u8>>> {
     }
 }
 
-/// Convert a Windows FILETIME value to a chrono [`chrono::DateTime`].
+/// Convert a Windows FILETIME value to a [`jiff::Timestamp`].
 ///
-/// Returns `None` if `filetime` is zero or predates the Unix epoch.
-pub fn filetime_to_datetime(filetime: u64) -> Option<chrono::DateTime<chrono::Utc>> {
+/// Returns `None` if `filetime` is zero, predates the Unix epoch, or lands
+/// outside the range representable by a `Timestamp`.
+pub fn filetime_to_datetime(filetime: u64) -> Option<jiff::Timestamp> {
     if filetime == 0 || filetime < FILETIME_EPOCH_DIFF {
         return None;
     }
-    let unix_100ns = filetime - FILETIME_EPOCH_DIFF;
-    #[allow(clippy::cast_possible_wrap)]
-    let secs = (unix_100ns / 10_000_000) as i64;
-    #[allow(clippy::cast_possible_truncation)]
-    let nanos = ((unix_100ns % 10_000_000) * 100) as u32;
-    chrono::DateTime::from_timestamp(secs, nanos)
+    let unix_100ns = i128::from(filetime - FILETIME_EPOCH_DIFF);
+    let unix_nanos = unix_100ns * 100;
+    jiff::Timestamp::from_nanosecond(unix_nanos).ok()
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
-    use chrono::Datelike;
 
     #[test]
     fn filetime_epoch() {
-        let dt = filetime_to_datetime(133_485_408_000_000_000).unwrap();
-        assert_eq!(dt.year(), 2024);
-        assert_eq!(dt.month(), 1);
-        assert_eq!(dt.day(), 1);
+        // FILETIME 133_485_408_000_000_000 == 2024-01-01T00:00:00Z.
+        // Pin the exact Unix-nanosecond instant so the jiff conversion is
+        // checked against a value derived from the documented FILETIME math,
+        // not merely against a coarse year/month/day.
+        let ts = filetime_to_datetime(133_485_408_000_000_000).unwrap();
+        assert_eq!(ts.as_nanosecond(), 1_704_067_200_000_000_000_i128);
+        assert_eq!(ts.as_second(), 1_704_067_200);
+        assert_eq!(ts.to_string(), "2024-01-01T00:00:00Z");
     }
 
     #[test]
     fn filetime_zero_returns_none() {
         assert!(filetime_to_datetime(0).is_none());
+    }
+
+    #[test]
+    fn filetime_pre_epoch_returns_none() {
+        // Any FILETIME below the 1601->1970 epoch difference predates the Unix
+        // epoch and must yield None (preserving the pre-migration guard).
+        assert!(filetime_to_datetime(FILETIME_EPOCH_DIFF - 1).is_none());
     }
 }

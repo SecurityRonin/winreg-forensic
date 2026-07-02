@@ -305,7 +305,7 @@ fn parse_surfaces_distro_key_last_written() {
         .last_written
         .expect("distro entry must carry its GUID subkey LastWriteTime");
     assert_eq!(
-        lw.timestamp(),
+        lw.as_second(),
         1_600_486_800,
         "decoded FILETIME → 2020-09-19T03:40:00Z"
     );

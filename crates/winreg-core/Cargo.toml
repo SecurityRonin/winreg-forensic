@@ -1,6 +1,6 @@
 [package]
 name = "winreg-core"
-version = "0.1.1"
+version = "0.2.0"
 description = "Core Windows Registry hive parser"
 edition.workspace = true
 rust-version.workspace = true
@@ -15,7 +15,7 @@ binrw.workspace = true
 memmap2.workspace = true
 miette.workspace = true
 thiserror.workspace = true
-chrono.workspace = true
+jiff.workspace = true
 serde = { workspace = true }
 
 [dev-dependencies]

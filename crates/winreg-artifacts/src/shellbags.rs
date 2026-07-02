@@ -72,7 +72,7 @@ pub fn parse(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<ShellbagEntry> {
 
 fn walk_key(key: &Key<'_>, key_path: &str, entries: &mut Vec<ShellbagEntry>) {
     let last_written = filetime_to_datetime(key.last_written_raw())
-        .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string());
+        .and_then(|dt| jiff::fmt::strtime::format("%Y-%m-%dT%H:%M:%SZ", dt).ok());
 
     // Decode MRUListEx value
     let mru_order = decode_mrulistex(key);

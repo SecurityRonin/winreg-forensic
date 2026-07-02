@@ -91,7 +91,7 @@ fn parse_inventory_app_file(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<AmcacheEntry> {
         let key_name = subkey.name();
 
         let last_written = filetime_to_datetime(subkey.last_written_raw())
-            .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string());
+            .and_then(|dt| jiff::fmt::strtime::format("%Y-%m-%dT%H:%M:%SZ", dt).ok());
 
         // Helper: read a REG_SZ value, returning empty string on any error.
         let read_sz = |name: &str| -> String {
@@ -182,7 +182,7 @@ fn parse_root_file(hive: &Hive<Cursor<Vec<u8>>>) -> Vec<AmcacheEntry> {
                 .strip_prefix("0000")
                 .map_or_else(|| sha1_raw.clone(), ToString::to_string);
             let last_written = filetime_to_datetime(file.last_written_raw())
-                .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string());
+                .and_then(|dt| jiff::fmt::strtime::format("%Y-%m-%dT%H:%M:%SZ", dt).ok());
 
             entries.push(AmcacheEntry {
                 file_path,

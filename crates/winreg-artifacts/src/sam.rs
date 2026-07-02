@@ -168,7 +168,7 @@ fn read_filetime(data: &[u8], offset: usize) -> Option<String> {
     }
     let ft = u64::from_le_bytes(data[offset..offset + 8].try_into().ok()?);
     let dt = filetime_to_datetime(ft)?;
-    Some(dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+    jiff::fmt::strtime::format("%Y-%m-%dT%H:%M:%SZ", dt).ok()
 }
 
 /// Read a u32 LE at `offset` from `data`. Returns 0 if out of bounds.

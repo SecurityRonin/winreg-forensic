@@ -56,7 +56,7 @@ pub struct RunKeyEntry {
     pub suspicious_reason: Option<String>,
     /// The Run key's `LastWriteTime` — approximately when this autorun entry
     /// was last written. `None` when the key carries no timestamp.
-    pub last_written: Option<chrono::DateTime<chrono::Utc>>,
+    pub last_written: Option<jiff::Timestamp>,
 }
 
 // ── Classification ────────────────────────────────────────────────────────────
