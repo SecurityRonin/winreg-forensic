@@ -35,6 +35,9 @@ use winreg_core::hive::Hive;
 use winreg_format::cells::{CellHeader, CellSignature, RawKeyNode, RawKeyValue};
 use winreg_format::flags::ValueType;
 
+mod carver;
+pub use carver::HiveCarver;
+
 /// Hard cap on the number of recovered records, so a hive packed with
 /// signature-like bytes cannot exhaust memory.
 pub const MAX_RECOVERIES: usize = 100_000;
