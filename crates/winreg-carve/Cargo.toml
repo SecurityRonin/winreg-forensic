@@ -3,12 +3,18 @@ name = "winreg-carve"
 version = "0.1.0"
 description = "Registry hive carving from disk/memory images"
 edition.workspace = true
-rust-version.workspace = true
+# forensic-carve (the fleet Carver contract) is MSRV 1.80, so this carving-layer
+# crate overrides the workspace 1.75 floor. The low-MSRV readers (winreg-core /
+# winreg-format) keep 1.75 for third-party reuse.
+rust-version = "1.80"
 license.workspace = true
 
 [dependencies]
 winreg-core.workspace = true
 winreg-format.workspace = true
+# Fleet carving contract + carver inventory (ADR 0001). Unpublished path dep.
+forensic-carve = { path = "../../../forensic-carve" }
+inventory = "0.3"
 
 [dev-dependencies]
 winreg-testutil = { workspace = true }
