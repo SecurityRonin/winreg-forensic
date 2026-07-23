@@ -1,0 +1,38 @@
+[package]
+name = "winreg-carve-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+# Standalone workspace: cargo-fuzz builds this crate in isolation, not as a
+# member of the main workspace it fuzzes.
+[workspace]
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.winreg-carve]
+path = "../crates/winreg-carve"
+
+[dependencies.winreg-core]
+path = "../crates/winreg-core"
+
+[dependencies.forensic-carve]
+version = "0.1"
+
+[[bin]]
+name = "hive_carve"
+path = "fuzz_targets/hive_carve.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "recover_deleted"
+path = "fuzz_targets/recover_deleted.rs"
+test = false
+doc = false
+bench = false
