@@ -2,6 +2,9 @@
 name = "winreg-fuse"
 version = "0.1.0"
 description = "FUSE virtual filesystem mount for registry hives"
+# Needs libfuse at build time (absent on the release-plz runner) and is a mount
+# front-end, not a reusable library — not a crates.io crate.
+publish = false
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

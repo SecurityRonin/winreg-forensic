@@ -2,6 +2,9 @@
 name = "winreg-cli"
 version = "0.2.0"
 description = "Windows Registry forensic CLI (reg4n6)"
+# Binary distributed via release.yml (GitHub Release + Homebrew/apt/winget on a
+# v[0-9]* tag), not crates.io — release-plz must not publish it.
+publish = false
 authors = ["Albert Hui <albert@securityronin.com>"]
 edition.workspace = true
 rust-version.workspace = true

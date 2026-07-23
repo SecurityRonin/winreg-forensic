@@ -2,6 +2,9 @@
 name = "winreg-py"
 version = "0.1.0"
 description = "Python bindings for winreg-forensic"
+# pyo3 bindings shipped as wheels, not a crates.io crate (publish-verify needs a
+# Python interpreter the release-plz runner lacks).
+publish = false
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

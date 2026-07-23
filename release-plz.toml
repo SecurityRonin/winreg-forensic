@@ -1,0 +1,75 @@
+# release-plz owns crates.io publishing + changelogs + per-crate version bumps for
+# the workspace libraries (winreg-format, winreg-core, winreg-diff, winreg-discover,
+# winreg-recover, winreg-carve, winreg-artifacts, winreg-timeline). It runs on
+# pushes to main (see .github/workflows/release-plz.yml):
+#   - `release-pr`  opens a human-reviewed version-bump PR (conventional commits)
+#   - `release`     publishes any crate whose Cargo.toml version is ahead of
+#                   crates.io, in dependency order, and creates its git tag
+#
+# Binary distribution (the reg4n6 MSI/deb/Homebrew/winget assets) stays in
+# release.yml, triggered by a manual v[0-9]* tag — decoupled from library publishing.
+
+[workspace]
+# Per-package git tags, e.g. `winreg-carve-v0.1.1`. Prefixing with the package name
+# keeps these from matching release.yml's `v[0-9]*` trigger, so a library release
+# never kicks off a binary build. Cutting a binary release stays a deliberate v* tag.
+git_tag_name = "{{ package }}-v{{ version }}"
+git_tag_enable = true
+# GitHub Releases (with downloadable assets) are owned by release.yml; library
+# crates get a git tag + CHANGELOG entry, not a separate GitHub Release.
+git_release_enable = false
+changelog_update = true
+# Each crate versions independently.
+dependencies_update = false
+# Only prepare a release when a real change exists since the last one. release-plz's
+# release detection is file-based, so a changelog-only "chore: release" commit
+# otherwise re-triggers a release (the churn loop). This allowlist makes
+# feat/fix/perf/refactor/doc/revert the only release triggers; chore/ci/test/style/
+# build (incl. release-plz's own release commits) never prepare a release.
+release_commits = "^(feat|fix|perf|refactor|doc|revert)"
+
+# Skip release-plz's own release commits so merging a release PR does not trigger
+# yet another release (the churn loop a squash-merged release commit otherwise
+# re-attributes to a package).
+[changelog]
+commit_parsers = [
+    { message = "^chore\\(release\\):", skip = true },
+    { message = "^chore: release", skip = true },
+    { message = "^feat", group = "added" },
+    { message = "^fix", group = "fixed" },
+    { message = "^perf", group = "performance" },
+    { message = "^refactor", group = "other" },
+    { message = "^doc", group = "documentation" },
+    { message = "^revert", group = "other" },
+    { message = "^style", skip = true },
+    { message = "^test", skip = true },
+    { message = "^ci", skip = true },
+    { message = "^build", skip = true },
+    { message = "^chore", skip = true },
+    { message = "^.*", group = "other" },
+]
+
+# The CLI binary (reg4n6) is distributed by release.yml on a v[0-9]* tag, never to
+# crates.io. `publish = false` mirrors its Cargo.toml (release-plz cross-checks the two).
+[[package]]
+name = "winreg-cli"
+release = false
+publish = false
+
+# FUSE mount front-end — libfuse system dep, not a crates.io library.
+[[package]]
+name = "winreg-fuse"
+release = false
+publish = false
+
+# Python bindings — shipped as wheels, not a crates.io crate.
+[[package]]
+name = "winreg-py"
+release = false
+publish = false
+
+# In-memory hive builder for tests only (Cargo.toml already publish = false).
+[[package]]
+name = "winreg-testutil"
+release = false
+publish = false
