@@ -8,7 +8,7 @@
 [![unsafe forbidden](https://img.shields.io/badge/unsafe-forbidden-success.svg)](https://github.com/rust-secure-code/safety-dance/)
 [![Sponsor](https://img.shields.io/badge/sponsor-h4x0r-ea4aaa?logo=github-sponsors)](https://github.com/sponsors/h4x0r)
 
-**`reg4n6` reads a Windows Registry hive the way a forensic examiner needs it — REGF metadata, the full key tree, deleted-cell carving, hive-to-hive diffs, and provenance-aware hive discovery across a mounted image — from one panic-free static binary.** Point it at a `SYSTEM`, `SOFTWARE`, `NTUSER.DAT`, or `Amcache.hve`, or at a whole extracted filesystem, and it finds every copy of every hive (live, `RegBack`, Volume Shadow Copy, transaction logs) and tells you what changed.
+**`reg4n6` reads a Windows Registry hive the way a forensic examiner needs it — REGF metadata, the full key tree, deleted-cell carving, hive-to-hive diffs, and provenance-aware hive discovery across a mounted image — from one panic-free-by-lint static binary.** Point it at a `SYSTEM`, `SOFTWARE`, `NTUSER.DAT`, or `Amcache.hve`, or at a whole extracted filesystem, and it finds every copy of every hive (live, `RegBack`, Volume Shadow Copy, transaction logs) and tells you what changed.
 
 ## See it work in 30 seconds
 
@@ -52,7 +52,7 @@ $ reg4n6 diff before/NTUSER.DAT after/NTUSER.DAT --changes-only
 
 ## Trust but verify
 
-- **Panic-free** — hives are untrusted, attacker-controllable input; lengths, offsets, and counts are range-checked before use, and reads go through bounds-checked helpers (Paranoid Gatekeeper standard).
+- **Panic-free by lint** — hives are untrusted, attacker-controllable input; lengths, offsets, and counts are range-checked before use, and reads go through bounds-checked helpers (Paranoid Gatekeeper standard).
 - **`#![forbid(unsafe_code)]`** across the workspace.
 - **Provenance-aware** — every located hive carries where it came from (live, `RegBack`, Volume Shadow Copy, transaction logs), so you never silently diff the wrong copy.
 - **Knowledge-driven** — the registry-artifact catalog (which keys, what they mean) is data-driven via `forensicnomicon`, not hardcoded special cases.
