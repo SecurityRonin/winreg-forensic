@@ -12,8 +12,8 @@ license.workspace = true
 [dependencies]
 winreg-core.workspace = true
 winreg-format.workspace = true
-# Fleet carving contract + carver inventory (ADR 0001). Unpublished path dep.
-forensic-carve = { path = "../../../forensic-carve" }
+# Fleet carving contract + carver inventory (ADR 0001).
+forensic-carve = "0.1"
 inventory = "0.3"
 
 [dev-dependencies]
