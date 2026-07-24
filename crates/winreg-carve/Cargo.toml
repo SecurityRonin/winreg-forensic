@@ -1,6 +1,6 @@
 [package]
 name = "winreg-carve"
-version = "0.1.0"
+version = "0.1.1"
 description = "Registry hive carving from disk/memory images"
 edition.workspace = true
 # forensic-carve (the fleet Carver contract) is MSRV 1.80, so this carving-layer

@@ -54,10 +54,10 @@ forensicnomicon = "1"
 shellitem = "0.2"
 
 # Internal
-winreg-format = { path = "crates/winreg-format", version = "0.1.0" }
-winreg-core = { path = "crates/winreg-core", version = "0.2.0" }
+winreg-format = { path = "crates/winreg-format", version = "0.1.1" }
+winreg-core = { path = "crates/winreg-core", version = "0.2.1" }
 winreg-diff = { path = "crates/winreg-diff" }
-winreg-discover = { path = "crates/winreg-discover", version = "0.2.0" }
+winreg-discover = { path = "crates/winreg-discover", version = "0.2.1" }
 winreg-testutil = { path = "crates/winreg-testutil" }
 
 [workspace.lints.rust]
