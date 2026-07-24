@@ -609,7 +609,7 @@ dependencies = [
 
 [[package]]
 name = "winreg-artifacts"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "forensicnomicon",
  "jiff",
@@ -625,7 +625,7 @@ dependencies = [
 
 [[package]]
 name = "winreg-carve"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "forensic-carve",
  "inventory",
@@ -649,7 +649,7 @@ dependencies = [
 
 [[package]]
 name = "winreg-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "binrw",
  "jiff",
@@ -664,7 +664,7 @@ dependencies = [
 
 [[package]]
 name = "winreg-diff"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -675,7 +675,7 @@ dependencies = [
 
 [[package]]
 name = "winreg-discover"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "jiff",
  "serde",
@@ -688,7 +688,7 @@ dependencies = [
 
 [[package]]
 name = "winreg-format"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "binrw",
  "bitflags 2.13.1",
