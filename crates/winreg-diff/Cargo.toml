@@ -1,6 +1,6 @@
 [package]
 name = "winreg-diff"
-version = "0.1.0"
+version = "0.1.1"
 description = "Registry hive diff engine — compare two hive states"
 edition.workspace = true
 rust-version.workspace = true
