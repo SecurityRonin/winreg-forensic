@@ -28,6 +28,18 @@ audit-as-crates-io = false
 [policy.winreg-format]
 audit-as-crates-io = false
 
+[policy.winreg-carve]
+audit-as-crates-io = false
+
+[policy.winreg-diff]
+audit-as-crates-io = false
+
+[policy.winreg-recover]
+audit-as-crates-io = false
+
+[policy.winreg-timeline]
+audit-as-crates-io = false
+
 [[exemptions.aho-corasick]]
 version = "1.1.4"
 criteria = "safe-to-deploy"
