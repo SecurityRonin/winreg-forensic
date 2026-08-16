@@ -30,6 +30,8 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       # winreg-fuse (libfuse) and winreg-py (pyo3/python) need system libraries
       # not provisioned here; they are excluded so the gate stays reliable.
       - run: cargo clippy --workspace --exclude winreg-fuse --exclude winreg-py --all-targets -- -D warnings
@@ -41,6 +43,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - run: cargo test --workspace --exclude winreg-fuse --exclude winreg-py
 
   msrv:
@@ -50,6 +54,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.75
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       # MSRV 1.75 is a published-library guarantee for the crates downstream
       # consumers (forensicnomicon, memory-forensic) actually depend on.
       - run: cargo build -p winreg-format -p winreg-core
