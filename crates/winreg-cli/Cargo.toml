@@ -7,7 +7,12 @@ description = "Windows Registry forensic CLI (reg4n6)"
 publish = false
 authors = ["Albert Hui <albert@securityronin.com>"]
 edition.workspace = true
-rust-version.workspace = true
+# NOT the workspace floor. The workspace declares 1.75 because seven PUBLISHED
+# libraries here promise it to downstreams. This crate is `publish = false` -- a
+# binary distributed by tag -- so nothing pins against it and it has no such
+# promise to keep. It cannot keep one either: clap 4.6 requires edition2024,
+# which needs cargo 1.85+. Per fleet policy an app declares the pinned toolchain.
+rust-version = "1.96.0"
 license.workspace = true
 repository.workspace = true
 
