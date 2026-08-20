@@ -30,8 +30,8 @@ user-login = "h4x0r"
 user-name = "Albert Hui"
 
 [[publisher.shellitem]]
-version = "0.2.0"
-when = "2026-06-28"
+version = "0.2.3"
+when = "2026-08-20"
 user-id = 347968
 user-login = "h4x0r"
 user-name = "Albert Hui"

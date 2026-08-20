@@ -19,6 +19,15 @@ allow = [
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# `winreg-testutil` is publish = false, version 0.0.0, and appears only in
+# dev-dependencies as a path dep -- so it has no version to pin and cargo strips
+# it when packaging a dependent. That is a wildcard by construction, not an
+# unpinned third-party dependency.
+#
+# This setting permits wildcards ONLY for path dependencies on private crates,
+# which is narrower than `wildcards = "allow"`: a genuine unpinned dependency on
+# a published crate still fails.
+allow-wildcard-paths = true
 
 [sources]
 unknown-registry = "deny"

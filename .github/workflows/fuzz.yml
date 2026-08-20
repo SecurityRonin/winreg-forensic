@@ -16,22 +16,6 @@ permissions:
   contents: read
 
 jobs:
-  fuzz-check:
-    name: Fuzz targets compile (nightly)
-    runs-on: ubuntu-latest
-    # cargo-fuzz builds with the host nightly; warnings in its own deps must not
-    # fail the install, so this job does not deny warnings.
-    env:
-      RUSTFLAGS: ""
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: dtolnay/rust-toolchain@nightly
-      - uses: Swatinem/rust-cache@9bdad043e88c75890e36ad3bbc8d27f0090dd609 # v2.7.8
-        with:
-          cache-on-failure: true
-      - run: cargo install cargo-fuzz
-      - run: cargo +nightly fuzz check
-
   fuzz:
     name: Fuzz ${{ matrix.target }}
     runs-on: ubuntu-latest
