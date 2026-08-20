@@ -495,9 +495,9 @@ dependencies = [
 
 [[package]]
 name = "shellitem"
-version = "0.2.0"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aacc05cb220ac9c618b6d6026e29dc4776e0dc0b874d5c5dffc44fa30078a233"
+checksum = "01b953b0afc37ffeb89f3a8f812fd9b34e597f2bd166baf47e70d0234f4266a5"
 dependencies = [
  "forensicnomicon",
 ]
