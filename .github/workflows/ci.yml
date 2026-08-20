@@ -17,12 +17,14 @@ jobs:
       # winreg-carve declares 1.80 while the workspace declares 1.75. The old
       # single-toolchain job built only two of the eight published crates.
       #
-      # Coverage is a FLOOR and the number is measured, not aspirational:
-      # 87.23% with binaries excluded, at the time of migration. This repo had
-      # no coverage gate at all, so a floor it meets is the honest starting
-      # point; raising it is follow-up work with a number to move.
+      # Coverage is a FLOOR, measured rather than aspirational: LINE coverage is
+      # 86.31% with binaries excluded, at the time of migration. Taken from
+      # `cargo llvm-cov --json` rather than the summary table, because the first
+      # percentage column there is REGIONS (87.23%) and the gate compares lines
+      # -- reading the wrong column set this floor above what the repo meets and
+      # failed the first run.
       coverage-gate: floor
-      coverage-floor: 87
+      coverage-floor: 86
       coverage-ignore-regex: '(^|/)src/(main\.rs|bin/)'
       # ubuntu-only for now. The old CI was ubuntu-only too, and proving the
       # Windows and macOS legs is a separate change with its own failures.
