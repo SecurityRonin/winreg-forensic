@@ -493,7 +493,7 @@ pub struct LfElement {
 #[derive(Debug, Clone, Copy)]
 pub struct LhElement {
     pub key_offset: CellOffset,
-    /// Hash: H = 37*H + C[i] over uppercase key name.
+    /// Hash: `H = 37*H + C[i]` over uppercase key name.
     pub name_hash: u32,
 }
 
@@ -586,7 +586,7 @@ impl SubkeyIndex {
     }
 }
 
-/// Compute LH name hash: H = 37*H + C[i] over uppercase name.
+/// Compute LH name hash: `H = 37*H + C[i]` over uppercase name.
 pub fn lh_hash(name: &str) -> u32 {
     let mut h: u32 = 0;
     for c in name.to_ascii_uppercase().bytes() {

@@ -4,58 +4,26 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
 
-env:
-  CARGO_TERM_COLOR: always
-  RUST_BACKTRACE: 1
+permissions:
+  contents: read
 
 jobs:
-  fmt:
-    name: Format
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-      - run: cargo fmt --all --check
-
-  clippy:
-    name: Clippy
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
-      # winreg-fuse (libfuse) and winreg-py (pyo3/python) need system libraries
-      # not provisioned here; they are excluded so the gate stays reliable.
-      - run: cargo clippy --workspace --exclude winreg-fuse --exclude winreg-py --all-targets -- -D warnings
-
-  test:
-    name: Test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
-      - run: cargo test --workspace --exclude winreg-fuse --exclude winreg-py
-
-  msrv:
-    name: MSRV (1.75)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.75
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
-      # MSRV 1.75 is a published-library guarantee for the crates downstream
-      # consumers (forensicnomicon, memory-forensic) actually depend on.
-      - run: cargo build -p winreg-format -p winreg-core
+  ci:
+    uses: SecurityRonin/fleet-ci/.github/workflows/rust-ci.yml@fefad0f1e71a5206e5258bc56b9147ae9d4cba73
+    with:
+      # MSRV is NOT overridden. Every member declares a floor and the shared
+      # workflow verifies each at its own -- which matters here, because
+      # winreg-carve declares 1.80 while the workspace declares 1.75. The old
+      # single-toolchain job built only two of the eight published crates.
+      #
+      # Coverage is a FLOOR and the number is measured, not aspirational:
+      # 87.23% with binaries excluded, at the time of migration. This repo had
+      # no coverage gate at all, so a floor it meets is the honest starting
+      # point; raising it is follow-up work with a number to move.
+      coverage-gate: floor
+      coverage-floor: 87
+      coverage-ignore-regex: '(^|/)src/(main\.rs|bin/)'
+      # ubuntu-only for now. The old CI was ubuntu-only too, and proving the
+      # Windows and macOS legs is a separate change with its own failures.
+      os-matrix: false
